@@ -298,3 +298,9 @@ All five closure gates pass:
 Phase 12 (deployment execution) and Phase 13 (hardening) remain outstanding; `scripts/deploy-handoff.md` is the runbook for the former.
 
 The three decisions above (D15–D17) were resolvable without an account. Three more are **not**, because they are deployment facts rather than design choices: the Atlas network-access scoping, whether SSE survived both proxies or fell back to polling, and the measured keep-warm latency. They are booked as **D18–D20** in the handoff document (§8) and must stay empty until those phases actually run.
+
+---
+
+## D25. Repository hosted at https://github.com/Keninjavelas/IAMscope
+
+**Decision.** The IAMScope repository is hosted at `https://github.com/Keninjavelas/IAMscope`, private, under a personal GitHub account.
