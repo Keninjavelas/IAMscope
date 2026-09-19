@@ -1,0 +1,18 @@
+{
+  "//": "Lint-only project for build tooling. These config files carry no emitted output and sit outside every workspace tsconfig, so without this they cannot be parsed with type information by ESLint. Referenced from eslint.config.mjs `parserOptions.project`.",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowJs": true,
+    "checkJs": false,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node"]
+  },
+  "include": [
+    "eslint.config.mjs",
+    "frontend/postcss.config.js",
+    "frontend/vite.config.ts",
+    "frontend/vitest.config.ts"
+  ]
+}

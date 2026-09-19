@@ -1,0 +1,1634 @@
+# Master Build Prompt — IAMScope
+
+Copy everything below into your AI assistant, your repo's `SPEC.md`, or your team's onboarding doc. It is self-contained: it defines the product, the architecture, the tech stack, the folder structure, the data model, the API, the design system, the deployment, the build order, and the future roadmap. Anyone (human or AI) given this prompt should be able to build, ship, and extend the project without asking clarifying questions.
+
+---
+
+## 0. Your Role
+
+You are a senior full-stack engineer, MongoDB data modeler, and product designer. You will build **IAMScope**, a local-first, multi-tenant IAM policy workbench. You will produce production-quality TypeScript, follow the design system in this document exactly, and never introduce a service outside the approved stack. When a requirement is ambiguous, you choose the option that preserves multi-tenancy correctness and matches the design tokens. You do not ask for permission to proceed; you build in the order specified in §25.
+
+---
+
+## 1. Product Definition
+
+**Name:** IAMScope
+**One-liner:** A multi-tenant workbench for understanding, editing, and auditing IAM policies over time.
+**Category:** Cloud security tooling / DevOps.
+**Target user:** Cloud engineers, security engineers, platform teams auditing AWS IAM.
+
+**Core value:** Three analysis lenses over one shared data model:
+1. **Impact** — diff evaluation results between two policy versions.
+2. **Graph** — find multi-hop privilege escalation paths.
+3. **Timeline** — reconstruct system state at any past date.
+
+**Differentiator:** Existing tools do one lens. IAMScope does all three from the same collections, backed by MongoDB only, with real-time multi-user collaboration.
+
+---
+
+## 2. Scope
+
+### 2.1 In Scope (v1)
+- Multi-user auth with sessions, password reset, email verification
+- Organizations (tenants) with RBAC: owner, admin, member, viewer
+- Invitations, member management, API keys
+- CRUD for policies, principals, resources, scenarios
+- Policy versioning (immutable history)
+- Evaluation engine (AWS IAM subset)
+- Impact lens (diff between evaluation runs)
+- Graph lens (escalation path detection + visualization)
+- Timeline lens (state reconstruction + attribution)
+- Presence (who's viewing what, live cursors on graph)
+- Command palette, keyboard map, density modes, dark/light/system themes
+- Change streams + SSE for live updates
+- Full audit trail per org
+- Docker Compose for local dev, Vercel + Render + Atlas M0 for deploy
+
+### 2.2 In Scope (v2 — build after v1 ships)
+- OAuth (GitHub, Google)
+- Email provider integration (Resend or Postmark) for real invite/reset emails
+- Condition operators: `StringEquals`, `StringLike`, `StringNotEquals`, `ArnLike`, `ArnEquals`, `Bool`, `IpAddress`, `NotIpAddress`
+- Permission boundaries (schema-ready in v1, enforced in v2)
+- Service Control Policies (SCPs)
+- Policy linting (unused permissions, wildcard detection, best-practice checks)
+- Scenario suites with tags and bulk execution
+- Export/import org policy sets as JSON
+- SARIF export for CI integration
+
+### 2.3 In Scope (v3 — future)
+- Azure and GCP policy formats (data model is provider-agnostic)
+- Real AWS API import (read-only) with credentials
+- CI/CD integration (GitHub Action runs regression scenarios on PR)
+- Billing and plan tiers
+- SSO (SAML, OIDC)
+- Self-hosted deployment (Docker image, Helm chart)
+
+### 2.4 Out of Scope (all versions)
+- Runtime authorization decisions (IAMScope is a workbench, not an enforcement point)
+- Real-time AWS API mutation
+- Being a general-purpose policy engine for non-IAM systems
+
+---
+
+## 3. Non-Negotiable Constraints
+
+1. **MongoDB is the only database.** No Postgres, no Redis, no Elasticsearch, no Neo4j, no Kafka.
+2. **Two logical MongoDB databases on one Atlas cluster** (or two clusters in v3): `iamscope_identity` and `iamscope_data`.
+3. **Every domain document carries `orgId`.** Every compound index leads with `orgId`. Cross-org reads are impossible without a full collection scan.
+4. **`orgId` is derived from the session or API key, never from the request body.**
+5. **Backend runs on Render** (Vercel serverless kills SSE). Frontend runs on Vercel.
+6. **TypeScript strict mode everywhere.** No `any`. No `@ts-ignore` without a comment explaining why.
+7. **WCAG AA minimum.** Every interactive element keyboard-reachable. Reduced motion respected.
+8. **Zero layout shift on load.** Skeletons match final layout to the pixel.
+9. **Optimistic UI for all mutations.** Rollback with undo toast on failure.
+10. **No third-party UI kit defaults.** Radix primitives only; all styling is ours.
+
+---
+
+## 4. Architecture
+
+```
+┌──────────────────────────────┐
+│  Vercel (global CDN)         │
+│  React 18 + Vite (static)    │
+│  Talks REST + SSE over HTTPS │
+└──────────────┬───────────────┘
+               │
+               │ HTTPS
+               ▼
+┌──────────────────────────────┐
+│  Render (Node 20, Express)   │
+│  - REST API                  │
+│  - SSE fan-out               │
+│  - Change stream watchers    │
+│  - Identity + data pools     │
+└──────────────┬───────────────┘
+               │
+               │ mongodb+srv (TLS)
+               ▼
+┌──────────────────────────────┐
+│  MongoDB Atlas M0            │
+│  ┌────────────────────────┐  │
+│  │ iamscope_identity      │  │
+│  │  users, sessions,      │  │
+│  │  orgs, memberships,    │  │
+│  │  invitations,          │  │
+│  │  api_keys, auth_events │  │
+│  └────────────────────────┘  │
+│  ┌────────────────────────┐  │
+│  │ iamscope_data          │  │
+│  │  policies,             │  │
+│  │  policy_versions,      │  │
+│  │  principals,           │  │
+│  │  resources,            │  │
+│  │  scenarios,            │  │
+│  │  evaluation_runs,      │  │
+│  │  escalation_paths,     │  │
+│  │  audit_events,         │  │
+│  │  presence              │  │
+│  └────────────────────────┘  │
+└──────────────────────────────┘
+```
+
+**Local dev:** Docker Compose runs a single-node MongoDB replica set. Both logical databases live on the same replica set. Backend and frontend run in dev mode with hot reload.
+
+---
+
+## 5. Tech Stack
+
+### 5.1 Backend
+| Layer | Choice | Notes |
+|---|---|---|
+| Runtime | Node.js 20 LTS | Render default |
+| Language | TypeScript 5.4+ strict | `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes` |
+| Framework | Express 4 | Mature, SSE-friendly |
+| Driver | `mongodb` official driver 6.x | Not Mongoose — we want explicit control |
+| Validation | `zod` | Shared schemas with frontend |
+| Auth | `argon2` (argon2id) | OWASP params: memory 19456, time 2, parallelism 1 |
+| Sessions | Opaque tokens, sha256-hashed in DB | No JWT |
+| Cookies | `cookie` + `cookie-parser` | httpOnly, secure, sameSite=lax |
+| CSRF | Double-submit cookie | `csrf` lib or hand-rolled |
+| Security headers | `helmet` | CSP, HSTS, X-Frame-Options |
+| Rate limiting | In-Mongo counters with TTL | No Redis |
+| Logging | `pino` | Structured JSON |
+| Testing | `vitest` + `supertest` | Unit + integration |
+| Build | `tsc` + `tsx` for dev | |
+
+### 5.2 Frontend
+| Layer | Choice | Notes |
+|---|---|---|
+| Framework | React 18 | |
+| Build | Vite 5 | |
+| Language | TypeScript 5.4+ strict | |
+| Styling | Tailwind CSS v4 | Custom tokens only; no default palette |
+| Primitives | Radix UI | Unstyled, accessible |
+| Animation | Framer Motion | Motion with meaning only |
+| Data | TanStack Query v5 | Optimistic mutations, cache invalidation |
+| Local state | Zustand | UI state only (density, theme, palette) |
+| Forms | react-hook-form + zod | |
+| Command palette | `cmdk` | |
+| Code editor | CodeMirror 6 | Lighter than Monaco |
+| Graph | sigma.js + graphology | WebGL; fallback `react-force-graph` |
+| Dates | date-fns | |
+| Icons | lucide-react | |
+| Testing | vitest + @testing-library/react | |
+| a11y testing | `pa11y` in CI | |
+
+### 5.3 Shared
+| Layer | Choice |
+|---|---|
+| Types | `packages/types` (TS) shared via workspace |
+| Zod schemas | `packages/schemas` shared |
+| Design tokens | `packages/tokens` (CSS + JS) |
+
+### 5.4 Infrastructure
+| Concern | Service |
+|---|---|
+| Database | MongoDB Atlas M0 (free tier) |
+| Backend host | Render Web Service (free tier) |
+| Frontend host | Vercel (Hobby) |
+| Keep-warm | cron-job.org (free) pinging `/api/health` every 10 min |
+| Local dev | Docker Compose (MongoDB replica set, backend, frontend) |
+| CI | GitHub Actions (lint, typecheck, test, a11y) |
+
+---
+
+## 6. Repository & Folder Structure
+
+Monorepo. npm workspaces. Everything typed end-to-end.
+
+```
+iamscope/
+├── package.json                    workspace root
+├── package-lock.json
+├── tsconfig.base.json              shared TS config
+├── .editorconfig
+├── .gitignore
+├── .nvmrc                          node 20
+├── README.md
+├── docker-compose.yml              local dev
+├── .github/
+│   └── workflows/
+│       ├── ci.yml                  lint + typecheck + test + a11y
+│       └── deploy.yml              (optional) trigger Render/Vercel
+│
+├── packages/
+│   ├── types/                      shared TS types
+│   │   ├── package.json
+│   │   ├── tsconfig.json
+│   │   └── src/
+│   │       ├── index.ts
+│   │       ├── identity.ts         User, Session, Org, Membership, Invitation, ApiKey
+│   │       ├── domain.ts           Policy, Principal, Resource, Scenario
+│   │       ├── analysis.ts         EvaluationRun, EscalationPath, AuditEvent, Presence
+│   │       └── api.ts              request/response shapes
+│   │
+│   ├── schemas/                    shared zod schemas
+│   │   ├── package.json
+│   │   ├── tsconfig.json
+│   │   └── src/
+│   │       ├── index.ts
+│   │       ├── auth.ts
+│   │       ├── orgs.ts
+│   │       ├── policies.ts
+│   │       ├── principals.ts
+│   │       ├── resources.ts
+│   │       ├── scenarios.ts
+│   │       ├── evaluations.ts
+│   │       └── common.ts           ObjectId, pagination, sorting
+│   │
+│   └── tokens/                     design tokens
+│       ├── package.json
+│       ├── tsconfig.json
+│       └── src/
+│           ├── index.ts
+│           ├── tokens.css          semantic tokens, both themes
+│           └── scales.ts           spacing, type, motion, radius, elevation
+│
+├── backend/
+│   ├── package.json
+│   ├── tsconfig.json
+│   ├── .env.example
+│   ├── render.yaml
+│   ├── Dockerfile
+│   └── src/
+│       ├── index.ts                Express app bootstrap
+│       ├── env.ts                  zod-validated env
+│       ├── logger.ts               pino
+│       │
+│       ├── db/
+│       │   ├── identity.ts         pool + typed collections
+│       │   ├── data.ts             pool + typed collections
+│       │   ├── indexes.ts          idempotent index creation
+│       │   └── transactions.ts     helpers
+│       │
+│       ├── auth/
+│       │   ├── password.ts         argon2id hash + verify
+│       │   ├── sessions.ts         create, validate, revoke, rotate
+│       │   ├── cookies.ts          set, clear, parse
+│       │   ├── csrf.ts             issue + verify double-submit
+│       │   ├── tokens.ts           random tokens, sha256
+│       │   └── middleware.ts       requireAuth, requireOrg, requireRole, requireApiKey
+│       │
+│       ├── middleware/
+│       │   ├── errorHandler.ts
+│       │   ├── validate.ts         zod body/query/params validation
+│       │   ├── audit.ts            writes audit_events after mutations
+│       │   ├── rateLimit.ts        in-Mongo counters
+│       │   └── requestId.ts
+│       │
+│       ├── routes/
+│       │   ├── auth.ts
+│       │   ├── orgs.ts
+│       │   ├── invitations.ts
+│       │   ├── apiKeys.ts
+│       │   ├── policies.ts
+│       │   ├── principals.ts
+│       │   ├── resources.ts
+│       │   ├── scenarios.ts
+│       │   ├── evaluations.ts
+│       │   ├── graph.ts
+│       │   ├── timeline.ts
+│       │   ├── audit.ts
+│       │   ├── presence.ts
+│       │   └── events.ts           SSE endpoint
+│       │
+│       ├── services/
+│       │   ├── evaluator.ts        IAM evaluation engine
+│       │   ├── versioner.ts        policy_versions writer
+│       │   ├── escalation.ts       $graphLookup + pattern detection
+│       │   ├── timeline.ts         state reconstruction + cache
+│       │   ├── presence.ts         heartbeat + query
+│       │   ├── sse.ts              client registry + fan-out
+│       │   ├── audit.ts            audit_events writer
+│       │   └── org.ts              org-scoped helpers
+│       │
+│       ├── watcher.ts              change streams → SSE
+│       │
+│       └── seed.ts                 idempotent demo data
+│
+└── frontend/
+    ├── package.json
+    ├── tsconfig.json
+    ├── vite.config.ts
+    ├── tailwind.config.ts
+    ├── postcss.config.js
+    ├── vercel.json
+    ├── index.html
+    ├── .env.example
+    └── src/
+        ├── main.tsx
+        ├── App.tsx                 router + providers
+        ├── env.ts                  zod-validated import.meta.env
+        │
+        ├── styles/
+        │   ├── tokens.css          imported from @iamscope/tokens
+        │   └── globals.css         resets, base, focus-visible
+        │
+        ├── api/
+        │   ├── client.ts           fetch wrapper (CSRF, errors, base URL)
+        │   ├── keys.ts             TanStack Query key factory
+        │   ├── queries/            one file per resource
+        │   └── mutations/          one file per resource
+        │
+        ├── hooks/
+        │   ├── useSSE.ts
+        │   ├── useLiveQuery.ts
+        │   ├── usePresence.ts
+        │   ├── useKeyboard.ts
+        │   ├── useDensity.ts
+        │   ├── useTheme.ts
+        │   ├── useMediaQuery.ts
+        │   └── useReducedMotion.ts
+        │
+        ├── components/
+        │   ├── ui/                 design system primitives
+        │   │   ├── Button.tsx
+        │   │   ├── Input.tsx
+        │   │   ├── Textarea.tsx
+        │   │   ├── Select.tsx
+        │   │   ├── Combobox.tsx
+        │   │   ├── Dialog.tsx
+        │   │   ├── Drawer.tsx
+        │   │   ├── Popover.tsx
+        │   │   ├── Tooltip.tsx
+        │   │   ├── ContextMenu.tsx
+        │   │   ├── Table.tsx
+        │   │   ├── Badge.tsx
+        │   │   ├── Toast.tsx
+        │   │   ├── Command.tsx
+        │   │   ├── CodeEditor.tsx
+        │   │   ├── JsonDiff.tsx
+        │   │   ├── Skeleton.tsx
+        │   │   ├── EmptyState.tsx
+        │   │   ├── ErrorState.tsx
+        │   │   ├── Kbd.tsx
+        │   │   ├── Avatar.tsx
+        │   │   ├── AvatarStack.tsx
+        │   │   └── index.ts
+        │   │
+        │   ├── app/
+        │   │   ├── AppShell.tsx
+        │   │   ├── Header.tsx
+        │   │   ├── Sidebar.tsx
+        │   │   ├── OrgSwitcher.tsx
+        │   │   ├── UserMenu.tsx
+        │   │   ├── CommandPalette.tsx
+        │   │   ├── KeyboardHelp.tsx
+        │   │   ├── DensityToggle.tsx
+        │   │   ├── ThemeToggle.tsx
+        │   │   └── ARIAAnnouncer.tsx
+        │   │
+        │   ├── domain/
+        │   │   ├── PolicyEditor.tsx
+        │   │   ├── StatementEditor.tsx
+        │   │   ├── PrincipalPicker.tsx
+        │   │   ├── ResourcePicker.tsx
+        │   │   ├── ScenarioPicker.tsx
+        │   │   ├── TracePanel.tsx
+        │   │   ├── ResultBadge.tsx
+        │   │   ├── DiffTable.tsx
+        │   │   ├── AuditTimeline.tsx
+        │   │   └── PresenceBadge.tsx
+        │   │
+        │   └── viz/
+        │       ├── EscalationGraph.tsx
+        │       ├── GraphMinimap.tsx
+        │       ├── GraphLegend.tsx
+        │       ├── TimelineScrubber.tsx
+        │       ├── TimelineMarkers.tsx
+        │       └── DiffPreviewPanel.tsx
+        │
+        ├── features/
+        │   ├── auth/
+        │   │   ├── LoginPage.tsx
+        │   │   ├── SignupPage.tsx
+        │   │   ├── ForgotPasswordPage.tsx
+        │   │   ├── ResetPasswordPage.tsx
+        │   │   ├── VerifyEmailPage.tsx
+        │   │   └── components/
+        │   ├── orgs/
+        │   │   ├── OrgSettingsPage.tsx
+        │   │   ├── MembersPage.tsx
+        │   │   ├── InvitationsPage.tsx
+        │   │   ├── ApiKeysPage.tsx
+        │   │   └── components/
+        │   ├── policies/
+        │   │   ├── PoliciesPage.tsx
+        │   │   ├── PolicyDetailPage.tsx
+        │   │   ├── PolicyVersionsPage.tsx
+        │   │   └── components/
+        │   ├── principals/
+        │   ├── resources/
+        │   ├── scenarios/
+        │   ├── evaluate/
+        │   ├── impact/
+        │   ├── graph/
+        │   ├── timeline/
+        │   ├── audit/
+        │   ├── presence/
+        │   └── command/
+        │       └── commands.ts     all command palette entries
+        │
+        ├── stores/
+        │   ├── ui.ts               density, theme, palette, focus mode
+        │   └── session.ts          user, active org, role
+        │
+        ├── pages/
+        │   ├── HomePage.tsx
+        │   ├── ArchitecturePage.tsx
+        │   ├── DataModelPage.tsx
+        │   ├── AboutPage.tsx
+        │   └── NotFoundPage.tsx
+        │
+        └── lib/
+            ├── format.ts           ARN truncation, date, counts
+            ├── iam.ts              client-side IAM helpers
+            ├── graph.ts            graph layout helpers
+            └── constants.ts
+```
+
+---
+
+## 7. Data Model
+
+### 7.1 `iamscope_identity`
+
+**`users`**
+```
+_id: ObjectId
+email: string (lowercased, unique)
+name: string
+avatarUrl: string | null
+passwordHash: string (argon2id)
+passwordUpdatedAt: Date
+emailVerified: boolean
+emailVerificationToken: string | null
+mfaEnabled: boolean
+mfaSecret: string | null (encrypted at rest)
+status: "active" | "suspended" | "deleted"
+preferences: { density, theme, accent }
+createdAt: Date
+updatedAt: Date
+lastLoginAt: Date | null
+```
+Indexes:
+- `{ email: 1 }` unique
+- `{ status: 1 }`
+- `{ emailVerificationToken: 1 }` sparse
+- `{ createdAt: -1 }`
+
+**`sessions`**
+```
+_id: ObjectId
+userId: ObjectId
+tokenHash: string (sha256 hex)
+activeOrgId: ObjectId | null
+userAgent: string
+ip: string
+createdAt: Date
+expiresAt: Date
+lastSeenAt: Date
+revokedAt: Date | null
+rotatedFrom: ObjectId | null
+```
+Indexes:
+- `{ tokenHash: 1 }` unique
+- `{ userId: 1, revokedAt: 1 }`
+- `{ expiresAt: 1 }` TTL 0 (delete at expiresAt)
+- `{ activeOrgId: 1 }`
+
+**`orgs`**
+```
+_id: ObjectId
+name: string
+slug: string (unique, url-safe)
+plan: "free"
+createdBy: ObjectId
+settings: { defaultDensity, defaultTheme, accent }
+createdAt: Date
+updatedAt: Date
+deletedAt: Date | null
+```
+Indexes:
+- `{ slug: 1 }` unique
+- `{ createdBy: 1 }`
+- `{ deletedAt: 1 }`
+
+**`memberships`**
+```
+_id: ObjectId
+orgId: ObjectId
+userId: ObjectId
+role: "owner" | "admin" | "member" | "viewer"
+invitedBy: ObjectId | null
+joinedAt: Date
+status: "active" | "invited" | "removed"
+```
+Indexes:
+- `{ orgId: 1, userId: 1 }` unique
+- `{ userId: 1, status: 1 }`
+- `{ orgId: 1, role: 1 }`
+- `{ orgId: 1, status: 1 }`
+
+**`invitations`**
+```
+_id: ObjectId
+orgId: ObjectId
+email: string
+role: "admin" | "member" | "viewer"
+tokenHash: string
+invitedBy: ObjectId
+createdAt: Date
+expiresAt: Date
+acceptedAt: Date | null
+```
+Indexes:
+- `{ tokenHash: 1 }` unique
+- `{ orgId: 1, email: 1 }`
+- `{ expiresAt: 1 }` TTL 0
+
+**`api_keys`**
+```
+_id: ObjectId
+orgId: ObjectId
+name: string
+keyHash: string (sha256)
+prefix: string (first 8 chars, display only)
+scopes: ("read" | "write" | "evaluate" | "admin")[]
+createdBy: ObjectId
+createdAt: Date
+lastUsedAt: Date | null
+expiresAt: Date | null
+revokedAt: Date | null
+```
+Indexes:
+- `{ keyHash: 1 }` unique
+- `{ orgId: 1, revokedAt: 1 }`
+- `{ prefix: 1 }`
+
+**`auth_events`**
+```
+_id: ObjectId
+userId: ObjectId | null
+email: string | null
+orgId: ObjectId | null
+type: string (login.success, login.fail, logout, signup, password.reset, invite.sent, invite.accepted, session.revoked, apikey.created, ...)
+ip: string
+userAgent: string
+metadata: object
+timestamp: Date
+```
+Indexes:
+- `{ userId: 1, timestamp: -1 }`
+- `{ email: 1, timestamp: -1 }`
+- `{ timestamp: -1 }` TTL 15552000 (180 days)
+
+### 7.2 `iamscope_data`
+
+**`policies`**
+```
+_id: ObjectId
+orgId: ObjectId
+name: string
+arn: string
+currentVersion: number
+statements: Statement[]
+tags: Record<string, string>
+deleted: boolean
+createdBy: ObjectId
+updatedBy: ObjectId
+createdAt: Date
+updatedAt: Date
+```
+`Statement`:
+```
+sid: string
+effect: "Allow" | "Deny"
+actions: string[]
+resources: string[]
+conditions: Condition[]
+```
+`Condition`: `{ operator: string, key: string, values: string[] }`
+
+Indexes:
+- `{ orgId: 1, name: 1 }` unique
+- `{ orgId: 1, arn: 1 }` unique
+- `{ orgId: 1, deleted: 1, updatedAt: -1 }`
+- `{ orgId: 1, "tags.team": 1 }`
+
+**`policy_versions`**
+```
+_id: ObjectId
+orgId: ObjectId
+policyId: ObjectId
+version: number
+statements: Statement[]
+changedBy: ObjectId
+changeReason: string
+createdAt: Date
+```
+Indexes:
+- `{ orgId: 1, policyId: 1, version: -1 }`
+- `{ orgId: 1, createdAt: -1 }`
+
+**`principals`**
+```
+_id: ObjectId
+orgId: ObjectId
+type: "User" | "Role" | "Group"
+name: string
+arn: string
+attachedPolicies: ObjectId[]
+groupMemberships: string[]
+assumeRoleTargets: string[]
+boundaryPolicyId: ObjectId | null
+tags: Record<string, string>
+deleted: boolean
+createdBy: ObjectId
+updatedBy: ObjectId
+createdAt: Date
+updatedAt: Date
+```
+Indexes:
+- `{ orgId: 1, arn: 1 }` unique
+- `{ orgId: 1, name: 1 }` unique
+- `{ orgId: 1, type: 1, deleted: 1 }`
+- `{ orgId: 1, groupMemberships: 1 }`
+- `{ orgId: 1, assumeRoleTargets: 1 }`
+- `{ orgId: 1, "tags.team": 1 }`
+
+**`resources`**
+```
+_id: ObjectId
+orgId: ObjectId
+arn: string
+type: string
+tags: Record<string, string>
+accountId: string | null
+deleted: boolean
+createdAt: Date
+```
+Indexes:
+- `{ orgId: 1, arn: 1 }` unique
+- `{ orgId: 1, type: 1, deleted: 1 }`
+- `{ orgId: 1, "tags.environment": 1 }`
+
+**`scenarios`**
+```
+_id: ObjectId
+orgId: ObjectId
+name: string
+principalArn: string
+action: string
+resourceArn: string
+expectedResult: "Allow" | "Deny"
+tags: string[]
+createdBy: ObjectId
+createdAt: Date
+updatedAt: Date
+```
+Indexes:
+- `{ orgId: 1, tags: 1 }`
+- `{ orgId: 1, name: 1 }`
+- `{ orgId: 1, updatedAt: -1 }`
+
+**`evaluation_runs`**
+```
+_id: ObjectId
+orgId: ObjectId
+label: string
+snapshotAt: Date
+triggeredBy: "manual" | "policy.update" | "principal.update" | "seed" | "api"
+triggeredByUserId: ObjectId | null
+causedByAuditEventId: ObjectId | null
+results: {
+  scenarioId: ObjectId
+  result: "Allow" | "Deny"
+  trace: { policyId, policyName, sid, effect }[]
+}[]
+summary: { total, passed, failed }
+createdAt: Date
+```
+Indexes:
+- `{ orgId: 1, createdAt: -1 }` + TTL 7776000 (90 days)
+- `{ orgId: 1, snapshotAt: -1 }`
+- `{ orgId: 1, causedByAuditEventId: 1 }`
+
+**`escalation_paths`**
+```
+_id: ObjectId
+orgId: ObjectId
+fromPrincipalArn: string
+toPrincipalArn: string
+hops: { via, target, policyId, sid }[]
+severity: "low" | "medium" | "high"
+computedAt: Date
+policySnapshotVersion: number
+```
+Indexes:
+- `{ orgId: 1, fromPrincipalArn: 1, severity: -1 }`
+- `{ orgId: 1, computedAt: -1 }`
+- `{ orgId: 1, fromPrincipalArn: 1, toPrincipalArn: 1 }` unique
+
+**`audit_events`**
+```
+_id: ObjectId
+orgId: ObjectId
+timestamp: Date
+actorUserId: ObjectId | null
+actorEmail: string | null
+actorType: "user" | "api_key" | "system"
+action: string (policy.create, policy.update, policy.delete, policy.restore, principal.attach, principal.detach, member.invite, member.role.change, member.remove, apikey.create, apikey.revoke, ...)
+target: { type, id, name }
+before: object | null
+after: object | null
+metadata: object
+```
+Indexes:
+- `{ orgId: 1, timestamp: -1 }`
+- `{ orgId: 1, "target.type": 1, "target.id": 1, timestamp: -1 }`
+- `{ orgId: 1, actorUserId: 1, timestamp: -1 }`
+- `{ orgId: 1, action: 1, timestamp: -1 }`
+
+**`presence`**
+```
+_id: ObjectId
+orgId: ObjectId
+userId: ObjectId
+sessionId: ObjectId
+location: { route, entityType, entityId }
+cursor: { x, y } | null
+lastSeenAt: Date
+```
+Indexes:
+- `{ orgId: 1, lastSeenAt: -1 }` + TTL 60
+- `{ orgId: 1, userId: 1, sessionId: 1 }` unique
+
+---
+
+## 8. API Surface
+
+Base: `/api`. All JSON. All responses `{ data, error? }`.
+
+### 8.1 Auth (public unless noted)
+```
+POST   /auth/signup              { email, password, name, orgName }
+POST   /auth/login               { email, password }
+POST   /auth/logout              (auth)
+POST   /auth/forgot-password     { email }
+POST   /auth/reset-password      { token, newPassword }
+POST   /auth/verify-email        { token }
+GET    /auth/me                  (auth) → user + activeOrg + role
+POST   /auth/switch-org          (auth) { orgId }
+POST   /auth/change-password     (auth) { currentPassword, newPassword }
+GET    /auth/sessions            (auth)
+DELETE /auth/sessions/:id        (auth)
+```
+
+### 8.2 Orgs
+```
+GET    /orgs                     list user's orgs
+POST   /orgs                     create
+GET    /orgs/:id
+PUT    /orgs/:id                 admin+
+DELETE /orgs/:id                 owner
+GET    /orgs/:id/members
+POST   /orgs/:id/invitations     admin+  { email, role }
+GET    /orgs/:id/invitations
+DELETE /orgs/:id/invitations/:id admin+
+PUT    /orgs/:id/members/:userId admin+  { role }
+DELETE /orgs/:id/members/:userId admin+
+POST   /invitations/:token/accept public  { name, password }
+```
+
+### 8.3 API keys
+```
+GET    /orgs/:id/api-keys        admin+
+POST   /orgs/:id/api-keys        admin+  { name, scopes, expiresAt }
+DELETE /orgs/:id/api-keys/:id    admin+
+```
+
+### 8.4 Policies
+```
+GET    /policies?includeDeleted=false&tag=&q=
+GET    /policies/:id
+POST   /policies                 member+  { name, statements, tags, changeReason }
+PUT    /policies/:id             member+  { statements, changeReason }
+DELETE /policies/:id             admin+   soft delete
+POST   /policies/:id/restore     admin+   { version }
+GET    /policies/:id/versions
+GET    /policies/:id/versions/:v
+```
+
+### 8.5 Principals
+```
+GET    /principals
+GET    /principals/:id
+POST   /principals               member+  { type, name, arn, groupMemberships, assumeRoleTargets, tags }
+PUT    /principals/:id           member+
+DELETE /principals/:id           admin+
+POST   /principals/:id/policies/:policyId    member+  attach
+DELETE /principals/:id/policies/:policyId    member+  detach
+```
+
+### 8.6 Resources
+```
+GET    /resources
+GET    /resources/:id
+POST   /resources                member+
+PUT    /resources/:id            member+
+DELETE /resources/:id            admin+
+```
+
+### 8.7 Scenarios
+```
+GET    /scenarios?tags=&q=
+POST   /scenarios                member+
+PUT    /scenarios/:id            member+
+DELETE /scenarios/:id            admin+
+```
+
+### 8.8 Evaluation
+```
+POST   /evaluate                 any role  { principalArn, action, resourceArn, persist=true }
+GET    /evaluations              list runs
+GET    /evaluations/:id
+GET    /evaluations/diff?before=:id&after=:id
+DELETE /evaluations              admin+   clear all
+```
+
+### 8.9 Graph
+```
+POST   /graph/escalation         { fromPrincipalArn } → runs traversal, caches, returns paths
+GET    /graph/paths?from=:arn
+```
+
+### 8.10 Timeline
+```
+GET    /timeline/state?at=:iso   reconstructs state
+GET    /timeline/events?from=&to=
+```
+
+### 8.11 Audit
+```
+GET    /audit?targetType=&targetId=&actorId=&from=&to=
+GET    /audit/attribution?scenarioId=&before=:runId&after=:runId
+```
+
+### 8.12 Presence
+```
+GET    /presence                 list active in org
+POST   /presence/heartbeat       { location, cursor }
+```
+
+### 8.13 SSE
+```
+GET    /events                   text/event-stream, org-scoped
+```
+
+### 8.14 API key auth
+Any request with `Authorization: Bearer <key>` bypasses session. Key's `orgId` becomes request org. Scopes checked against route requirements. `auth_events` records `actorType: "api_key"`.
+
+---
+
+## 9. Auth & Multi-Tenancy
+
+### 9.1 Session lifecycle
+1. **Signup:** create user, hash password (argon2id), create org, create owner membership, create session, set cookie, emit `auth_event`.
+2. **Login:** verify password, create session, set cookie, update `lastLoginAt`, emit `auth_event`. On failure: increment rate-limit counter, emit `login.fail`.
+3. **Session validation:** middleware reads cookie → sha256 → `sessions` lookup → check `revokedAt == null AND expiresAt > now` → load user + active org + membership.
+4. **Rotation:** on org switch, password change, or role change, issue new session token, revoke old, set new cookie.
+5. **Revocation:** `revokedAt = now`. TTL eventually removes.
+
+### 9.2 Cookie config
+```
+name: iamscope_session
+httpOnly: true
+secure: true (in production)
+sameSite: "lax"
+path: "/"
+maxAge: 30 days
+```
+
+### 9.3 CSRF
+- On session create, issue a CSRF token, set non-httpOnly cookie `iamscope_csrf`.
+- Frontend reads cookie, sends `X-CSRF-Token` header on all mutations.
+- Backend compares header to cookie value. Mismatch → 403.
+
+### 9.4 Rate limiting
+- In-Mongo `rate_limits` collection: `{ key, count, windowStart, expiresAt }` TTL 1h.
+- Login: 5 attempts per email per 15 min, 20 per IP per 15 min.
+- Signup: 3 per IP per hour.
+- Password reset: 3 per email per hour.
+- API: 600 req/min per API key, 120 req/min per session.
+- Exceeded → 429 with `Retry-After`.
+
+### 9.5 RBAC enforcement
+Middleware chain per route:
+```
+requireAuth → requireOrg → requireRole("admin") → handler
+```
+`requireRole` loads the user's `memberships` doc for `session.activeOrgId` and checks `role` against the required role hierarchy: `owner > admin > member > viewer`.
+
+### 9.6 Tenant isolation
+- Every domain route handler receives `orgId` from `req.session.activeOrgId` or `req.apiKey.orgId`. Never from `req.body`.
+- Every query and mutation includes `orgId` in the filter.
+- Every insert includes `orgId` in the document.
+- Compound indexes lead with `orgId`.
+- Integration test: user A in org 1 cannot read/write org 2's data even with a valid ID.
+
+---
+
+## 10. Evaluation Engine
+
+### 10.1 Input
+`{ principalArn, action, resourceArn }` scoped to `orgId`.
+
+### 10.2 Resolution order
+1. Load principal by ARN (org-scoped).
+2. Load all groups the principal belongs to (`groupMemberships` → `principals` of type Group).
+3. Collect all policy IDs: principal's `attachedPolicies` + each group's `attachedPolicies`.
+4. Load policies (filter `deleted: false`).
+5. If principal has a `boundaryPolicyId`, load it. In v2, boundary restricts allowed actions.
+6. Load SCPs if v2.
+
+### 10.3 Aggregation pipeline
+```
+$match principal by orgId + arn
+$lookup groups by groupMemberships
+$addFields combine direct + group policy IDs
+$lookup policies by IDs (deleted: false)
+$unwind policies
+$unwind policies.statements
+$match statements where action matches actions[] AND resource matches resources[]
+$group collect matching statements with policy metadata
+```
+
+### 10.4 Matching rules
+- `actions`: exact match, `*`, or prefix wildcard (`s3:*`, `s3:Get*`).
+- `resources`: exact ARN, `*`, or pattern (`arn:aws:s3:::bucket/*`).
+- `conditions`: v1 supports `StringEquals`, `StringLike`, `ArnLike`. v2 adds the rest.
+- Wildcard matching implemented with anchored regex built from the pattern.
+
+### 10.5 Result logic
+1. If any matching statement has `effect: "Deny"` → **Deny** (explicit deny wins).
+2. Else if any matching statement has `effect: "Allow"` → **Allow**.
+3. Else → **Deny** (implicit).
+4. If a boundary policy exists and denies the action → **Deny** (boundary restricts).
+
+### 10.6 Trace
+Return every matched statement with `{ policyId, policyName, sid, effect }` so the UI can render the decision path.
+
+### 10.7 Evaluation runs
+- On every policy/principal mutation, enqueue a run (in-process queue, debounced 500ms).
+- Run evaluates all `scenarios` in the org.
+- Store as `evaluation_runs` doc with `triggeredBy`, `causedByAuditEventId`, `results`, `summary`.
+
+---
+
+## 11. Escalation Engine
+
+### 11.1 Pattern detectors (v1)
+1. `iam:PassRole` + `lambda:CreateFunction` + `lambda:InvokeFunction`
+2. `iam:PassRole` + `ec2:RunInstances`
+3. `iam:CreatePolicyVersion` + `iam:SetDefaultPolicyVersion`
+4. `iam:AttachUserPolicy` / `iam:AttachRolePolicy` / `iam:AttachGroupPolicy`
+5. `sts:AssumeRole` on a role with broader permissions
+
+### 11.2 Algorithm
+For each principal in the org:
+1. `$graphLookup` over `principals.assumeRoleTargets` up to depth 5.
+2. For each reachable target, check if any policy attached to the source principal grants a required action from any detector pattern.
+3. If all actions of a pattern are grantable in sequence, record an escalation path.
+
+### 11.3 Storage
+Write to `escalation_paths` with `severity`:
+- 1 hop → low
+- 2 hops → medium
+- 3+ hops → high
+
+### 11.4 Invalidation
+On any policy or principal mutation, delete `escalation_paths` for affected principals and re-enqueue computation.
+
+### 11.5 API
+`POST /graph/escalation { fromPrincipalArn }` returns cached or freshly computed paths.
+
+---
+
+## 12. Timeline Engine
+
+### 12.1 State reconstruction at time T
+For each entity type:
+- **Policies:** latest `policy_versions` where `createdAt <= T` per `policyId`.
+- **Principals:** latest `audit_events` with `action: principal.*` where `timestamp <= T`, or current state if no history.
+- **Resources:** same as principals.
+- **Memberships:** reconstruct from `audit_events`.
+
+### 12.2 Caching
+In-process LRU keyed by `(orgId, T rounded to minute)`. Invalidated on any mutation in the org.
+
+### 12.3 Events endpoint
+`GET /timeline/events?from=&to=` returns `audit_events` in range, grouped by type for the scrubber markers.
+
+### 12.4 Attribution
+`GET /audit/attribution?scenarioId=&before=:runId&after=:runId`:
+1. Load both runs.
+2. Find the scenario result delta.
+3. Find `audit_events` between the two runs' `snapshotAt`.
+4. Filter to events targeting policies/principals referenced in the trace.
+5. Return the most likely cause with confidence.
+
+---
+
+## 13. Change Streams & SSE
+
+### 13.1 Watcher
+- Watch: `policies`, `policy_versions`, `principals`, `resources`, `scenarios`, `evaluation_runs`, `escalation_paths`, `presence`.
+- Use `fullDocument: 'updateLookup'`.
+- On `policies` / `principals` change: invalidate `escalation_paths`, enqueue re-evaluation.
+- On any change: emit SSE event `{ collection, op, orgId, documentId, timestamp }`.
+
+### 13.2 SSE endpoint
+```
+GET /api/events
+Content-Type: text/event-stream
+Cache-Control: no-cache
+Connection: keep-alive
+X-Accel-Buffering: no
+```
+- Validate session.
+- Register client in in-memory registry keyed by `orgId`.
+- On event from watcher: fan out only to clients with matching `orgId`.
+- On client disconnect: remove from registry.
+- Heartbeat comment every 20s to keep connection alive.
+
+### 13.3 Frontend
+- `useSSE` opens an `EventSource` to `${VITE_API_URL}/api/events`.
+- On message: invalidate relevant TanStack Query keys based on `collection` and `documentId`.
+- Reconnect on error with exponential backoff (max 30s).
+- On org switch: close and reopen.
+
+---
+
+## 14. Presence
+
+### 14.1 Heartbeat
+Frontend sends `POST /presence/heartbeat` every 20s with `{ location: { route, entityType, entityId }, cursor }`.
+Backend upserts `presence` doc keyed by `(orgId, userId, sessionId)`.
+
+### 14.2 TTL
+`presence.lastSeenAt` has TTL 60s. Stale docs auto-delete.
+
+### 14.3 UI
+- Header: avatar stack of all present users in org.
+- Per-entity: "Alice is editing" badge when another user's `presence.location.entityId` matches.
+- Graph: colored cursors rendered as animated dots with name labels.
+
+---
+
+## 15. Design System
+
+### 15.1 Principles
+1. Keyboard-first, mouse-optional.
+2. Density is a feature (compact default).
+3. Monospace for technical content.
+4. Optimistic everything.
+5. Motion with meaning.
+6. Dark-first, light-parity.
+7. Zero layout shift.
+8. Empty states teach.
+9. Errors have recovery.
+10. Accessibility is non-negotiable.
+
+### 15.2 Tokens (semantic only)
+```css
+:root[data-theme="dark"] {
+  --color-bg: oklch(0.15 0.01 250);
+  --color-bg-raised: oklch(0.18 0.01 250);
+  --color-bg-overlay: oklch(0.20 0.01 250);
+  --color-border: oklch(0.28 0.01 250);
+  --color-border-strong: oklch(0.38 0.01 250);
+  --color-text: oklch(0.95 0 0);
+  --color-text-muted: oklch(0.72 0.01 250);
+  --color-text-subtle: oklch(0.55 0.01 250);
+  --color-accent: oklch(0.68 0.16 250);
+  --color-accent-hover: oklch(0.73 0.16 250);
+  --color-success: oklch(0.72 0.15 150);
+  --color-danger: oklch(0.65 0.20 25);
+  --color-warn: oklch(0.78 0.15 80);
+  --color-info: oklch(0.70 0.10 220);
+  --color-focus: oklch(0.75 0.18 250);
+}
+:root[data-theme="light"] {
+  --color-bg: oklch(0.99 0 0);
+  --color-bg-raised: oklch(0.97 0.005 250);
+  --color-bg-overlay: oklch(1 0 0);
+  --color-border: oklch(0.90 0.01 250);
+  --color-border-strong: oklch(0.80 0.01 250);
+  --color-text: oklch(0.20 0.01 250);
+  --color-text-muted: oklch(0.42 0.01 250);
+  --color-text-subtle: oklch(0.58 0.01 250);
+  --color-accent: oklch(0.55 0.18 250);
+  --color-accent-hover: oklch(0.50 0.18 250);
+  --color-success: oklch(0.52 0.16 150);
+  --color-danger: oklch(0.52 0.20 25);
+  --color-warn: oklch(0.62 0.15 80);
+  --color-info: oklch(0.55 0.12 220);
+  --color-focus: oklch(0.55 0.18 250);
+}
+```
+
+**Type scale (px):** 11, 12, 13, 14, 16, 20, 28
+**Fonts:** Inter Variable (sans), Berkeley Mono or JetBrains Mono (mono)
+**Spacing:** 2, 4, 6, 8, 12, 16, 24, 32, 48, 64
+**Radius:** 4 (inputs), 6 (cards), 8 (panels), 12 (modals)
+**Elevation:** 0, 1 (`0 1px 2px`), 2 (`0 8px 24px` + backdrop blur)
+**Motion:**
+```
+--duration-instant: 80ms
+--duration-fast: 140ms
+--duration-normal: 220ms
+--duration-slow: 320ms
+--ease-out: cubic-bezier(0.16, 1, 0.3, 1)
+--ease-in-out: cubic-bezier(0.65, 0, 0.35, 1)
+```
+All durations collapse to 0ms under `prefers-reduced-motion: reduce`.
+
+**Density modes:**
+- `compact`: 28px rows, 12px font
+- `comfortable`: 36px rows, 13px font
+- `spacious`: 44px rows, 14px font
+
+### 15.3 Components (build list)
+`Button` (primary, secondary, ghost, danger, link × sm, md, lg), `Input`, `Textarea`, `Select`, `Combobox`, `Dialog`, `Drawer`, `Popover`, `Tooltip`, `ContextMenu`, `Table` (virtualized, sortable, filterable, sticky header, resizable columns), `Badge` (allow, deny, warn, info, muted), `Toast` (stacking, undo, pause-on-hover), `Command` (cmdk), `CodeEditor` (CodeMirror 6), `JsonDiff` (word-level), `Skeleton`, `EmptyState`, `ErrorState`, `Kbd`, `Avatar`, `AvatarStack`.
+
+### 15.4 Signature interactions
+- **Command palette (Cmd+K):** fuzzy search across navigate, create, evaluate, switch org, settings, help. Nested commands. Recent first.
+- **Inline editing:** click-to-edit, save on blur or Cmd+Enter, cancel on Esc, optimistic, dirty indicator.
+- **Hover-to-preview:** popover with entity summary on ARN/name hover.
+- **Presence:** avatar stack, "Alice is editing" badges, live cursors on graph.
+- **Toasts with undo:** 8s window for destructive actions, inverse mutation on undo.
+- **Keyboard map:**
+  ```
+  Cmd+K        command palette
+  G then P     Policies
+  G then R     Resources
+  G then E     Evaluate
+  G then I     Impact
+  G then G     Graph
+  G then T     Timeline
+  C            create (context-aware)
+  E            evaluate selected
+  /            focus search
+  ?            keyboard help
+  Esc          close/cancel
+  Cmd+Enter    submit form
+  Cmd+S        save inline edit
+  F            zoom-to-fit (graph)
+  R            reset (graph)
+  ```
+- **Focus management:** trap in dialogs/drawers, restore on close, `:focus-visible` ring 2px offset 2px.
+- **ARIA live regions:** polite for SSE updates, assertive for evaluation results.
+
+### 15.5 Graph lens UX
+- sigma.js + graphology, ForceAtlas2 seeded deterministically.
+- Semantic zoom: clusters → nodes → full ARNs + edge labels.
+- Focus + context: click node to dim beyond 2 hops; Cmd+click to pin.
+- Path highlighting: hover animates edge-by-edge (80ms/hop), non-path fades to 10%.
+- Edge color: assume-role = accent, pass-role = warn, attach = muted. Thickness = permission count.
+- Minimap bottom-right 120×80, click to navigate.
+- Empty state: "No escalation paths found" + primary action.
+- Virtualized labels for viewport + 1 radius.
+
+### 15.6 Timeline lens UX
+- Horizontal track from org creation to now.
+- Event markers above track, colored by type.
+- Draggable scrubber with momentum, snaps within 8px.
+- Live diff preview panel: added/removed/changed counts.
+- Snap-to-event on marker click opens audit detail.
+- Cmd+scroll zooms time axis; range selector below.
+- Keyboard: arrows step by event, Shift+arrows by day, Home/End bounds.
+- Minute-level cache for reconstruction.
+
+### 15.7 Accessibility
+- WCAG AA minimum, AAA where feasible.
+- Color never sole signal: Allow/Deny use icon + text + color.
+- Reduced motion respected.
+- Screen-reader tested on policy list, evaluation result, diff table, command palette.
+- `pa11y` in CI, fail build on violations.
+
+---
+
+## 16. UI Pages & Routes
+
+| Route | Page | Purpose |
+|---|---|---|
+| `/` | Home | Hero, three lenses overview, quick links |
+| `/login` | Login | |
+| `/signup` | Signup | |
+| `/forgot-password` | Forgot | |
+| `/reset-password` | Reset | |
+| `/verify-email` | Verify | |
+| `/orgs/new` | Create org | |
+| `/orgs/:id/settings` | Org settings | admin+ |
+| `/orgs/:id/members` | Members | admin+ |
+| `/orgs/:id/invitations` | Invitations | admin+ |
+| `/orgs/:id/api-keys` | API keys | admin+ |
+| `/policies` | Policies list | |
+| `/policies/:id` | Policy detail | |
+| `/policies/:id/versions` | Version history | |
+| `/principals` | Principals list | |
+| `/principals/:id` | Principal detail | |
+| `/resources` | Resources list | |
+| `/scenarios` | Scenarios list | |
+| `/evaluate` | Evaluate | |
+| `/impact` | Impact lens | |
+| `/graph` | Graph lens | |
+| `/timeline` | Timeline lens | |
+| `/audit` | Audit log | |
+| `/architecture` | Architecture | In-app doc |
+| `/data-model` | Data model | In-app doc |
+| `/about` | About | |
+| `*` | NotFound | |
+
+---
+
+## 17. State Management
+
+- **Server state:** TanStack Query. Query keys namespaced by `orgId` + resource. Invalidation driven by SSE events.
+- **Local UI state:** Zustand stores:
+  - `ui`: density, theme, accent, palette open, focus mode, sidebar collapsed
+  - `session`: user, activeOrg, role, permissions
+- **Form state:** react-hook-form + zod resolver.
+- **URL state:** filters, sort, pagination in query string via `useSearchParams`.
+
+---
+
+## 18. Error Handling & Observability
+
+- **Backend:** every error goes through `errorHandler` → structured JSON `{ error: { code, message, details? } }` + request ID.
+- **Frontend:** `ErrorState` component for query failures with retry. Toast for mutation failures with undo.
+- **Logging:** pino on backend, structured JSON, request ID correlation.
+- **Audit:** every mutation writes `audit_events`. Errors during mutation still write `audit_events` with `metadata.error`.
+- **No external APM.** All observability is in-Mongo.
+
+---
+
+## 19. Security
+
+- Helmet with strict CSP (`default-src 'self'`, no inline scripts except Vite dev).
+- HSTS in production.
+- X-Frame-Options DENY.
+- X-Content-Type-Options nosniff.
+- Referrer-Policy strict-origin-when-cross-origin.
+- Cookies httpOnly, secure, sameSite=lax.
+- CSRF double-submit.
+- Rate limits on auth and API.
+- Login lockout after 5 failures per email + IP.
+- Session rotation on privilege change.
+- Password: argon2id, min 12 chars, checked against a small common-password list.
+- API keys: sha256-hashed at rest, shown once on creation.
+- Tenant isolation enforced at middleware + query layer.
+- No secrets in logs. Env validated by zod at boot.
+
+---
+
+## 20. Performance
+
+- Indexes per §7.
+- Change stream watchers use `fullDocument: 'updateLookup'` only where needed.
+- Presence TTL 60s.
+- Evaluation runs TTL 90d.
+- Auth events TTL 180d.
+- Timeline state reconstruction cached per minute.
+- Graph rendering WebGL, virtualized labels.
+- Table virtualized above 100 rows.
+- Frontend code-split per route.
+- Images: none (avatars from Gravatar or initials).
+- Lighthouse target: 95+ all metrics.
+
+---
+
+## 21. Testing Strategy
+
+- **Unit:** evaluator (wildcards, conditions, boundaries), escalation pattern detection, timeline reconstruction, password hashing, session validation.
+- **Integration:** every route with supertest, in-memory Mongo (or Docker Mongo), covering happy path + RBAC + tenant isolation + validation errors.
+- **E2E (manual for v1):** signup → org → invite → accept → CRUD → evaluate → impact → graph → timeline → SSE.
+- **a11y:** pa11y in CI on `/`, `/login`, `/policies`, `/evaluate`, `/impact`, `/graph`, `/timeline`.
+- **Load:** 50 concurrent SSE clients sustained for 5 min.
+- **Coverage target:** 80% on backend services.
+
+---
+
+## 22. Deployment
+
+### 22.1 Atlas
+1. Create M0 cluster (region closest to Render).
+2. Create databases `iamscope_identity` and `iamscope_data`.
+3. Create users:
+   - `iamscope_identity_rw` with `readWrite` on `iamscope_identity`
+   - `iamscope_data_rw` with `readWrite` on `iamscope_data`
+4. Network access: `0.0.0.0/0` (Render free tier has no static IPs).
+5. Copy both connection strings.
+
+### 22.2 Render (backend)
+- Web Service from GitHub, root `backend/`.
+- Build: `npm ci && npm run build`
+- Start: `node dist/index.js`
+- Health check: `/api/health`
+- Env vars:
+  ```
+  NODE_ENV=production
+  PORT=10000
+  MONGO_IDENTITY_URL=mongodb+srv://...
+  MONGO_DATA_URL=mongodb+srv://...
+  CORS_ORIGIN=https://iamscope.vercel.app
+  SESSION_SECRET=<64 random bytes base64>
+  CSRF_SECRET=<64 random bytes base64>
+  LOG_LEVEL=info
+  ```
+- SSE header `X-Accel-Buffering: no` set in `events.ts` route.
+- Keep-warm: cron-job.org hits `/api/health` every 10 min.
+
+### 22.3 Vercel (frontend)
+- Project from GitHub, root `frontend/`.
+- Framework: Vite.
+- Build: `npm run build`, output `dist`.
+- Env var: `VITE_API_URL=https://iamscope.onrender.com` set before build.
+- Redeploy after any `VITE_*` change (baked at build time).
+- `vercel.json`:
+  ```json
+  {
+    "buildCommand": "npm run build",
+    "outputDirectory": "dist",
+    "framework": "vite",
+    "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  }
+  ```
+
+### 22.4 Post-deploy
+1. Run `node dist/seed.js` from Render shell (idempotent).
+2. Smoke test: signup, create org, invite second user, accept, CRUD, evaluate, graph, timeline, SSE across two tabs, RBAC, API key.
+3. `pa11y` on deployed URLs.
+4. Lighthouse on `/`, `/policies`, `/graph`.
+
+### 22.5 Local dev
+`docker-compose.yml`:
+```yaml
+services:
+  mongo:
+    image: mongo:7
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    ports: ["27017:27017"]
+    volumes: ["mongo_data:/data/db"]
+    healthcheck:
+      test: mongosh --quiet --eval "try { rs.status() } catch (e) { rs.initiate() }"
+      interval: 10s
+      retries: 5
+  backend:
+    build: ./backend
+    ports: ["4000:4000"]
+    environment:
+      MONGO_IDENTITY_URL: mongodb://mongo:27017/iamscope_identity?replicaSet=rs0
+      MONGO_DATA_URL: mongodb://mongo:27017/iamscope_data?replicaSet=rs0
+      CORS_ORIGIN: http://localhost:3000
+      SESSION_SECRET: dev-secret
+      CSRF_SECRET: dev-secret
+    depends_on:
+      mongo: { condition: service_healthy }
+  frontend:
+    build: ./frontend
+    ports: ["3000:3000"]
+    environment:
+      VITE_API_URL: http://localhost:4000
+    depends_on: [backend]
+volumes:
+  mongo_data:
+```
+
+---
+
+## 23. Environment Variables
+
+### Backend `.env.example`
+```
+NODE_ENV=development
+PORT=4000
+MONGO_IDENTITY_URL=mongodb://localhost:27017/iamscope_identity?replicaSet=rs0
+MONGO_DATA_URL=mongodb://localhost:27017/iamscope_data?replicaSet=rs0
+CORS_ORIGIN=http://localhost:3000
+SESSION_SECRET=replace-me
+CSRF_SECRET=replace-me
+LOG_LEVEL=debug
+```
+
+### Frontend `.env.example`
+```
+VITE_API_URL=http://localhost:4000
+```
+
+---
+
+## 24. Conventions
+
+- **Branching:** trunk-based. `main` always deployable. Feature branches `feat/`, `fix/`, `chore/`.
+- **Commits:** Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`).
+- **PRs:** require typecheck + lint + tests + a11y pass.
+- **Code style:** Prettier (2 spaces, single quotes, trailing commas), ESLint with `@typescript-eslint` strict.
+- **Naming:** `camelCase` for variables/functions, `PascalCase` for types/components, `SCREAMING_SNAKE` for constants, `kebab-case` for file names except React components (`PascalCase.tsx`).
+- **Imports:** absolute from `@/` in frontend, `@/` in backend. Shared packages via `@iamscope/*`.
+- **No default exports** except React pages.
+- **No `any`.** Use `unknown` + narrowing.
+- **Errors:** always typed. `Result<T, E>` pattern for service functions that can fail expectedly.
+
+---
+
+## 25. Build Order
+
+Build in this exact order. Each phase ends with something runnable.
+
+**Phase 1 — Foundation (Days 1–2)**
+1. Monorepo scaffold, workspaces, tsconfig.base
+2. `packages/types`, `packages/schemas`, `packages/tokens`
+3. Docker Compose (MongoDB replica set)
+4. Backend scaffold: Express, env validation, logger, `/api/health`
+5. Frontend scaffold: Vite, Tailwind, tokens, base layout
+6. CI: lint, typecheck, test
+
+**Phase 2 — Identity (Days 3–5)**
+7. `iamscope_identity` collections + indexes
+8. Password (argon2id), sessions, cookies, CSRF
+9. Auth routes: signup, login, logout, me, forgot, reset, verify
+10. `requireAuth`, `requireOrg`, `requireRole` middleware
+11. Frontend: Login, Signup, Forgot, Reset, Verify pages
+12. Session store, route guards
+
+**Phase 3 — Orgs & RBAC (Days 6–8)**
+13. `orgs`, `memberships`, `invitations`, `api_keys`, `auth_events`
+14. Org CRUD, member management, invitations, role changes
+15. API key create/revoke
+16. Org switcher, avatar stack
+17. Org settings, members, invitations, API keys pages
+18. RBAC integration tests
+
+**Phase 4 — Design System (Days 9–12)**
+19. `tokens.css` both themes, Tailwind config
+20. UI primitives: Button, Input, Select, Combobox, Dialog, Drawer, Popover, Tooltip, ContextMenu, Table, Badge, Toast, Skeleton, EmptyState, ErrorState, Kbd, Avatar, AvatarStack
+21. Command palette (cmdk)
+22. Keyboard map + help overlay
+23. Density + theme toggles, persistence
+
+**Phase 5 — Domain CRUD (Days 13–17)**
+24. `iamscope_data` collections + indexes
+25. Policies, principals, resources, scenarios routes
+26. Audit middleware on all mutations
+27. TanStack Query hooks + optimistic mutations
+28. Inline editing, hover-to-preview
+29. Presence collection + heartbeat + avatar stack + editing badges
+
+**Phase 6 — Versioning & Evaluation (Days 18–20)**
+30. `policy_versions` on every policy mutation
+31. `evaluator.ts` (org-scoped, wildcards, conditions)
+32. `POST /evaluate`
+33. Evaluate page with trace panel + ARIA live
+
+**Phase 7 — SSE & Change Streams (Days 21–22)**
+34. `watcher.ts` with org filtering
+35. SSE endpoint with `X-Accel-Buffering: no`
+36. `useSSE`, `useLiveQuery`, reconnect logic
+37. ARIA live region for SSE
+
+**Phase 8 — Impact Lens (Days 23–24)**
+38. Auto-trigger evaluation run on policy update
+39. Diff endpoint + `JsonDiff` component
+40. Impact page
+
+**Phase 9 — Graph Lens (Days 25–28)**
+41. `escalation.ts` (5 pattern detectors)
+42. Invalidation on policy change
+43. `EscalationGraph` with sigma.js: semantic zoom, path highlighting, minimap
+44. Live cursors via presence
+
+**Phase 10 — Timeline Lens (Days 29–31)**
+45. `timeline.ts` with minute-level cache
+46. Timeline scrubber, snap-to-event, zoom
+47. Diff preview panel
+48. Attribution endpoint + UI
+
+**Phase 11 — Seed & In-App Docs (Days 32–34)**
+49. `seed.ts` — demo user, org, second user, policies, principals, resources, scenarios, evaluation runs, escalation paths
+50. Home, Architecture, DataModel, About pages
+51. README
+
+**Phase 12 — Deploy (Days 35–37)**
+52. Atlas: cluster, DBs, users, network access
+53. Render: backend deploy, env, health, SSE headers
+54. Vercel: frontend deploy, `VITE_API_URL`
+55. Seed against Atlas
+56. Smoke test all flows
+57. Keep-warm cron
+
+**Phase 13 — Hardening (Days 38–42)**
+58. Rate limiting, login lockout
+59. Session rotation
+60. Helmet, CSP, security headers
+61. Error boundaries
+62. Load test 50 SSE clients
+63. a11y audit + fixes
+64. Lighthouse 95+ across the board
+
+---
+
+## 26. Definition of Done (v1)
+
+The project ships when, on the deployed Vercel + Render + Atlas stack:
+
+1. New user signs up, creates org, invites second user, second user accepts.
+2. Both see each other's presence in real time.
+3. Both CRUD policies, principals, resources, scenarios.
+4. Every policy edit creates version + audit event + evaluation run.
+5. Impact lens diffs any two runs with word-level JSON diff.
+6. Graph lens returns escalation paths, renders with semantic zoom, highlights paths on hover, shows live cursors.
+7. Timeline scrubber reconstructs state, snaps to events, shows live diff preview.
+8. Attribution links scenario deltas to causing audit event.
+9. Mutation in one tab updates other tabs in same org within 2s; other orgs receive nothing.
+10. RBAC enforced: viewer can't mutate, member can't delete, admin can't delete org, owner can.
+11. API keys authenticate and respect scopes.
+12. Every interaction keyboard-reachable; command palette covers navigate, create, evaluate.
+13. Every mutation optimistic; failures roll back with undo toast.
+14. WCAG AA passes; reduced motion respected; ARIA live announces SSE.
+15. Lighthouse 95+ all metrics; zero layout shift.
+16. Seed produces working demo org from clean DB.
+17. README documents local and deployed setup.
+
+---
+
+## 27. Future Roadmap (Post-v1)
+
+**v2:**
+- OAuth (GitHub, Google)
+- Email provider (Resend/Postmark) for invites + resets
+- Full condition operator set
+- Permission boundaries enforced
+- SCPs
+- Policy linting (unused permissions, wildcards)
+- Scenario suites with tags
+- Export/import org policy sets
+- SARIF export
+
+**v3:**
+- Azure + GCP policy formats (evaluator registry pattern)
+- Real AWS API import (read-only)
+- CI/CD integration (GitHub Action)
+- Billing + plan tiers
+- SSO (SAML, OIDC)
+- Self-hosted (Docker image, Helm chart)
+
+**v4:**
+- Multi-region Atlas
+- Read replicas for analytics
+- Time-series optimization for evaluation runs
+- Graph materialization for large orgs
+- Vector search for similar policies
+- AI-assisted policy authoring
+
+---
+
+## 28. Deliverables Per Phase
+
+Each phase produces:
+1. Working code merged to `main`.
+2. Updated README section.
+3. Tests passing in CI.
+4. No regressions in prior phases.
+5. Screenshot or short Loom of the phase's feature for the repo.
+
+---
+
+## 29. What You Must Not Do
+
+- Do not introduce a database other than MongoDB.
+- Do not use JWT for sessions.
+- Do not read `orgId` from request bodies.
+- Do not skip indexes on new collections.
+- Do not use a component library's default theme.
+- Do not use `any` in TypeScript.
+- Do not add a feature not in the current phase.
+- Do not deploy the backend to Vercel.
+- Do not commit secrets.
+- Do not ship a mutation without an audit event.
+- Do not ship a route without RBAC.
+- Do not ship a UI without keyboard support.
+
+---
+
+## 30. Start Here
+
+Begin with **Phase 1, Step 1**. Produce the monorepo scaffold, the three shared packages, the Docker Compose file, and a running backend `/api/health`. Do not proceed to Phase 2 until Phase 1 is fully runnable and tested.
+
+When you finish a phase, state which phase is complete, list the files created, and confirm the phase's runnable artifact works. Then proceed to the next phase.
+
+If any requirement in this document is ambiguous, choose the option that preserves tenant isolation, accessibility, and the design system, and note the decision in `DECISIONS.md`.
+
+Build IAMScope.

@@ -1,0 +1,318 @@
+/* ============================================================================
+ * IAMScope base layer + shared utility surface.
+ * Everything here reads from @iamscope/tokens so both themes are automatic.
+ * ========================================================================== */
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: var(--text-13);
+    line-height: 1.5;
+    font-synthesis-weight: none;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Zero layout shift: the scrollbar gutter is reserved up front. */
+    scrollbar-gutter: stable;
+  }
+
+  /* Focus ring contract (Plan §15.4): 2px ring, 2px offset, keyboard only. */
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+    border-radius: var(--radius-input);
+  }
+
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  ::selection {
+    background-color: var(--accent-subtle);
+    color: var(--text);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  p,
+  figure {
+    margin: 0;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+
+  a {
+    color: var(--accent);
+    text-decoration-color: color-mix(in oklab, var(--accent) 40%, transparent);
+    text-underline-offset: 2px;
+  }
+
+  a:hover {
+    color: var(--accent-hover);
+    text-decoration-color: currentColor;
+  }
+
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
+  }
+
+  /* Native scrollbars, themed. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--border-strong);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: var(--radius-full);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--text-subtle);
+  }
+
+  /* Skip link - first tab stop on every page. */
+  .skip-link {
+    position: absolute;
+    left: 8px;
+    top: 8px;
+    z-index: 100;
+    transform: translateY(-200%);
+    padding: 8px 12px;
+    border-radius: var(--radius-input);
+    background-color: var(--accent);
+    color: var(--accent-contrast);
+    font-size: var(--text-12);
+    transition: transform var(--duration-fast) var(--ease-out);
+  }
+
+  .skip-link:focus-visible {
+    transform: translateY(0);
+  }
+}
+
+@layer utilities {
+  /* --- Motion helpers ---------------------------------------------------
+   * Duration tokens collapse to 0ms under prefers-reduced-motion (see
+   * tokens.css), so every animation written with these classes is safe. */
+  .dur-instant {
+    transition-duration: var(--duration-instant);
+  }
+  .dur-fast {
+    transition-duration: var(--duration-fast);
+  }
+  .dur-normal {
+    transition-duration: var(--duration-normal);
+  }
+  .dur-slow {
+    transition-duration: var(--duration-slow);
+  }
+  .ease-out-brand {
+    transition-timing-function: var(--ease-out);
+  }
+  .ease-in-out-brand {
+    transition-timing-function: var(--ease-in-out);
+  }
+
+  /* --- Typography ------------------------------------------------------- */
+  .mono {
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
+    font-feature-settings: 'calt' 0;
+  }
+  .text-micro {
+    font-size: var(--text-11);
+    line-height: 1.4;
+  }
+  .text-meta {
+    font-size: var(--text-12);
+    line-height: 1.45;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ARNs and other long identifiers must never blow out a table cell. */
+  .arn {
+    font-family: var(--font-mono);
+    font-size: var(--text-12);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+    display: block;
+  }
+
+  /* --- Surfaces --------------------------------------------------------- */
+  .surface {
+    background-color: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+  }
+  .panel {
+    background-color: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-panel);
+  }
+  .overlay-surface {
+    background-color: var(--bg-overlay);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-modal);
+    box-shadow: var(--shadow-2);
+  }
+  .inset-surface {
+    background-color: var(--bg-inset);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+  }
+  .hairline {
+    border-color: var(--border);
+  }
+
+  /* --- Density-aware primitives (Plan §15.2) --------------------------- */
+  .row-height {
+    min-height: var(--row-height);
+  }
+  .cell {
+    padding: var(--cell-padding-y) var(--cell-padding-x);
+  }
+  .control-height {
+    height: var(--control-height);
+  }
+  .density-text {
+    font-size: var(--row-font-size);
+  }
+
+  /* --- Focus + a11y ----------------------------------------------------- */
+  .sr-only-focusable:not(:focus):not(:focus-within) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+
+  /* --- Skeleton shimmer (zero layout shift) ---------------------------- */
+  .skeleton {
+    background-color: var(--bg-hover);
+    border-radius: var(--radius-input);
+    animation: iamscope-pulse 1.4s var(--ease-in-out) infinite;
+  }
+
+  @keyframes iamscope-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.55;
+    }
+  }
+
+  /* --- Graph canvas ----------------------------------------------------- */
+  .graph-canvas {
+    position: absolute;
+    inset: 0;
+    background-color: var(--graph-bg);
+  }
+  .graph-label {
+    font-family: var(--font-sans);
+    font-size: var(--text-11);
+    pointer-events: none;
+    user-select: none;
+  }
+
+  /* --- Timeline --------------------------------------------------------- */
+  .timeline-track {
+    background: linear-gradient(
+      to right,
+      transparent,
+      var(--border-strong) 8%,
+      var(--border-strong) 92%,
+      transparent
+    );
+  }
+
+  /* --- Diff ------------------------------------------------------------- */
+  .diff-added {
+    background-color: var(--diff-added-bg);
+    color: var(--diff-added);
+  }
+  .diff-removed {
+    background-color: var(--diff-removed-bg);
+    color: var(--diff-removed);
+  }
+  .diff-changed {
+    background-color: var(--diff-changed-bg);
+    color: var(--diff-changed);
+  }
+}
+
+/* Motion is disabled wholesale for users who ask for it. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+:root[data-reduced-motion='true'] *,
+:root[data-reduced-motion='true'] *::before,
+:root[data-reduced-motion='true'] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}

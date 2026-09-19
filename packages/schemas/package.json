@@ -1,0 +1,24 @@
+{
+  "name": "@iamscope/schemas",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shared zod schemas for IAMScope (request validation on the backend, form validation on the frontend).",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@iamscope/types": "*",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

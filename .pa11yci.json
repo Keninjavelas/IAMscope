@@ -1,0 +1,26 @@
+{
+  "defaults": {
+    "standard": "WCAG2AA",
+    "timeout": 30000,
+    "chromeLaunchConfig": {
+      "args": ["--no-sandbox", "--disable-dev-shm-usage"]
+    }
+  },
+  "urls": [
+    "http://localhost:3000/",
+    "http://localhost:3000/login",
+    "http://localhost:3000/signup",
+    "http://localhost:3000/policies",
+    "http://localhost:3000/principals",
+    "http://localhost:3000/resources",
+    "http://localhost:3000/scenarios",
+    "http://localhost:3000/evaluate",
+    "http://localhost:3000/impact",
+    "http://localhost:3000/graph",
+    "http://localhost:3000/timeline",
+    "http://localhost:3000/audit",
+    "http://localhost:3000/architecture",
+    "http://localhost:3000/data-model",
+    "http://localhost:3000/about"
+  ]
+}

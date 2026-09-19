@@ -1,0 +1,317 @@
+/* ============================================================================
+ * IAMScope design tokens  (Plan §15.2)
+ *
+ * Two layers:
+ *   1. Runtime semantic variables  (--bg, --text, --accent, ...) selected by
+ *      [data-theme="dark"|"light"] on <html>.
+ *   2. `--color-*` aliases with the documented IAMScope names, so hand-written
+ *      component CSS can use the exact token names in the spec.
+ *
+ * Tailwind v4 consumes layer 1 through an `@theme inline` block in the app's
+ * stylesheet (see frontend/src/styles/tokens.css). The indirection exists so
+ * utilities stay theme-reactive at runtime instead of baking a value at build.
+ * ========================================================================== */
+
+/* --- Default: dark-first ------------------------------------------------ */
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: oklch(0.15 0.01 250);
+  --bg-raised: oklch(0.18 0.01 250);
+  --bg-overlay: oklch(0.2 0.01 250);
+  --bg-inset: oklch(0.13 0.01 250);
+  --bg-hover: oklch(0.22 0.01 250);
+  --bg-active: oklch(0.25 0.015 250);
+  --bg-selected: oklch(0.28 0.03 250);
+
+  --border: oklch(0.28 0.01 250);
+  --border-strong: oklch(0.38 0.01 250);
+  --border-subtle: oklch(0.23 0.01 250);
+
+  --text: oklch(0.95 0 0);
+  --text-muted: oklch(0.72 0.01 250);
+  --text-subtle: oklch(0.55 0.01 250);
+  --text-inverse: oklch(0.15 0.01 250);
+
+  --accent: oklch(0.68 0.16 250);
+  --accent-hover: oklch(0.73 0.16 250);
+  --accent-active: oklch(0.63 0.16 250);
+  --accent-subtle: oklch(0.28 0.05 250);
+  --accent-contrast: oklch(0.16 0.02 250);
+
+  --success: oklch(0.72 0.15 150);
+  --success-subtle: oklch(0.3 0.05 150);
+  --danger: oklch(0.65 0.2 25);
+  --danger-subtle: oklch(0.3 0.06 25);
+  --warn: oklch(0.78 0.15 80);
+  --warn-subtle: oklch(0.32 0.05 80);
+  --info: oklch(0.7 0.1 220);
+  --info-subtle: oklch(0.28 0.04 220);
+  --focus: oklch(0.75 0.18 250);
+
+  --allow: oklch(0.72 0.15 150);
+  --deny: oklch(0.65 0.2 25);
+  --severity-low: oklch(0.7 0.1 220);
+  --severity-medium: oklch(0.78 0.15 80);
+  --severity-high: oklch(0.65 0.2 25);
+
+  --diff-added: oklch(0.72 0.15 150);
+  --diff-added-bg: oklch(0.26 0.05 150);
+  --diff-removed: oklch(0.65 0.2 25);
+  --diff-removed-bg: oklch(0.26 0.06 25);
+  --diff-changed: oklch(0.78 0.15 80);
+  --diff-changed-bg: oklch(0.28 0.05 80);
+
+  --shadow-1: 0 1px 2px oklch(0 0 0 / 0.4);
+  --shadow-2: 0 8px 24px oklch(0 0 0 / 0.45);
+  --overlay-backdrop: oklch(0.1 0.01 250 / 0.72);
+}
+
+/* --- Light parity ------------------------------------------------------- */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --bg: oklch(0.99 0 0);
+  --bg-raised: oklch(0.97 0.005 250);
+  --bg-overlay: oklch(1 0 0);
+  --bg-inset: oklch(0.965 0.004 250);
+  --bg-hover: oklch(0.955 0.006 250);
+  --bg-active: oklch(0.94 0.008 250);
+  --bg-selected: oklch(0.93 0.03 250);
+
+  --border: oklch(0.9 0.01 250);
+  --border-strong: oklch(0.8 0.01 250);
+  --border-subtle: oklch(0.94 0.006 250);
+
+  --text: oklch(0.2 0.01 250);
+  --text-muted: oklch(0.42 0.01 250);
+  --text-subtle: oklch(0.58 0.01 250);
+  --text-inverse: oklch(0.99 0 0);
+
+  --accent: oklch(0.55 0.18 250);
+  --accent-hover: oklch(0.5 0.18 250);
+  --accent-active: oklch(0.46 0.18 250);
+  --accent-subtle: oklch(0.94 0.03 250);
+  --accent-contrast: oklch(1 0 0);
+
+  --success: oklch(0.52 0.16 150);
+  --success-subtle: oklch(0.94 0.04 150);
+  --danger: oklch(0.52 0.2 25);
+  --danger-subtle: oklch(0.95 0.03 25);
+  --warn: oklch(0.62 0.15 80);
+  --warn-subtle: oklch(0.96 0.04 80);
+  --info: oklch(0.55 0.12 220);
+  --info-subtle: oklch(0.95 0.03 220);
+  --focus: oklch(0.55 0.18 250);
+
+  --allow: oklch(0.52 0.16 150);
+  --deny: oklch(0.52 0.2 25);
+  --severity-low: oklch(0.55 0.12 220);
+  --severity-medium: oklch(0.62 0.15 80);
+  --severity-high: oklch(0.52 0.2 25);
+
+  --diff-added: oklch(0.45 0.15 150);
+  --diff-added-bg: oklch(0.95 0.04 150);
+  --diff-removed: oklch(0.5 0.19 25);
+  --diff-removed-bg: oklch(0.95 0.035 25);
+  --diff-changed: oklch(0.55 0.14 80);
+  --diff-changed-bg: oklch(0.96 0.045 80);
+
+  --shadow-1: 0 1px 2px oklch(0.2 0.01 250 / 0.08);
+  --shadow-2: 0 8px 24px oklch(0.2 0.01 250 / 0.14);
+  --overlay-backdrop: oklch(0.2 0.01 250 / 0.32);
+}
+
+/* ============================================================================
+ * Layer 2 - documented `--color-*` aliases
+ * ========================================================================== */
+:root {
+  --color-bg: var(--bg);
+  --color-bg-raised: var(--bg-raised);
+  --color-bg-overlay: var(--bg-overlay);
+  --color-bg-inset: var(--bg-inset);
+  --color-bg-hover: var(--bg-hover);
+  --color-bg-active: var(--bg-active);
+  --color-bg-selected: var(--bg-selected);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-border-subtle: var(--border-subtle);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-text-subtle: var(--text-subtle);
+  --color-text-inverse: var(--text-inverse);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-active: var(--accent-active);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-accent-contrast: var(--accent-contrast);
+  --color-success: var(--success);
+  --color-success-subtle: var(--success-subtle);
+  --color-danger: var(--danger);
+  --color-danger-subtle: var(--danger-subtle);
+  --color-warn: var(--warn);
+  --color-warn-subtle: var(--warn-subtle);
+  --color-info: var(--info);
+  --color-info-subtle: var(--info-subtle);
+  --color-focus: var(--focus);
+  --color-allow: var(--allow);
+  --color-deny: var(--deny);
+}
+
+/* ============================================================================
+ * Type, spacing, radius, motion scales (Plan §15.2)
+ * ========================================================================== */
+:root {
+  --font-sans:
+    'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono:
+    'Berkeley Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --text-11: 11px;
+  --text-12: 12px;
+  --text-13: 13px;
+  --text-14: 14px;
+  --text-16: 16px;
+  --text-20: 20px;
+  --text-28: 28px;
+
+  --leading-tight: 1.2;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.65;
+
+  --space-2: 2px;
+  --space-4: 4px;
+  --space-6: 6px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-24: 24px;
+  --space-32: 32px;
+  --space-48: 48px;
+  --space-64: 64px;
+
+  --radius-input: 4px;
+  --radius-card: 6px;
+  --radius-panel: 8px;
+  --radius-modal: 12px;
+  --radius-full: 9999px;
+
+  --elevation-0: none;
+  --elevation-1: var(--shadow-1);
+  --elevation-2: var(--shadow-2);
+
+  --duration-instant: 80ms;
+  --duration-fast: 140ms;
+  --duration-normal: 220ms;
+  --duration-slow: 320ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* Density defaults live on the density selector below; these are compact. */
+  --row-height: 28px;
+  --row-font-size: 12px;
+  --control-height: 28px;
+  --cell-padding-x: 8px;
+  --cell-padding-y: 4px;
+}
+
+/* ============================================================================
+ * Density modes (Plan §15.2)
+ * ========================================================================== */
+:root[data-density='compact'] {
+  --row-height: 28px;
+  --row-font-size: 12px;
+  --control-height: 28px;
+  --cell-padding-x: 8px;
+  --cell-padding-y: 4px;
+}
+
+:root[data-density='comfortable'] {
+  --row-height: 36px;
+  --row-font-size: 13px;
+  --control-height: 32px;
+  --cell-padding-x: 12px;
+  --cell-padding-y: 8px;
+}
+
+:root[data-density='spacious'] {
+  --row-height: 44px;
+  --row-font-size: 14px;
+  --control-height: 38px;
+  --cell-padding-x: 16px;
+  --cell-padding-y: 12px;
+}
+
+/* ============================================================================
+ * Accent overrides (Plan §15.5 - user/org accent)
+ * ========================================================================== */
+:root[data-accent='violet'] {
+  --accent: oklch(0.65 0.19 295);
+  --accent-hover: oklch(0.7 0.19 295);
+  --accent-active: oklch(0.6 0.19 295);
+  --accent-subtle: oklch(0.28 0.06 295);
+  --focus: oklch(0.72 0.2 295);
+}
+:root[data-accent='teal'] {
+  --accent: oklch(0.68 0.13 190);
+  --accent-hover: oklch(0.73 0.13 190);
+  --accent-active: oklch(0.63 0.13 190);
+  --accent-subtle: oklch(0.28 0.04 190);
+  --focus: oklch(0.74 0.14 190);
+}
+:root[data-accent='amber'] {
+  --accent: oklch(0.75 0.15 80);
+  --accent-hover: oklch(0.8 0.15 80);
+  --accent-active: oklch(0.7 0.15 80);
+  --accent-subtle: oklch(0.3 0.05 80);
+  --focus: oklch(0.8 0.16 80);
+}
+:root[data-accent='rose'] {
+  --accent: oklch(0.66 0.19 10);
+  --accent-hover: oklch(0.71 0.19 10);
+  --accent-active: oklch(0.61 0.19 10);
+  --accent-subtle: oklch(0.3 0.06 10);
+  --focus: oklch(0.72 0.2 10);
+}
+:root[data-accent='green'] {
+  --accent: oklch(0.68 0.15 150);
+  --accent-hover: oklch(0.73 0.15 150);
+  --accent-active: oklch(0.63 0.15 150);
+  --accent-subtle: oklch(0.28 0.05 150);
+  --focus: oklch(0.74 0.16 150);
+}
+
+/* ============================================================================
+ * Reduced motion - all durations collapse to 0 (Plan §15.2, §19)
+ * ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-instant: 0ms;
+    --duration-fast: 0ms;
+    --duration-normal: 0ms;
+    --duration-slow: 0ms;
+  }
+}
+
+:root[data-reduced-motion='true'] {
+  --duration-instant: 0ms;
+  --duration-fast: 0ms;
+  --duration-normal: 0ms;
+  --duration-slow: 0ms;
+}
+
+/* ============================================================================
+ * Graph lens palette (Plan §15.5)
+ * ========================================================================== */
+:root {
+  --edge-assume-role: var(--accent);
+  --edge-pass-role: var(--warn);
+  --edge-attach: var(--text-subtle);
+  --edge-group: var(--info);
+  --graph-node-user: var(--info);
+  --graph-node-role: var(--accent);
+  --graph-node-group: var(--warn);
+  --graph-bg: var(--bg-inset);
+  --graph-dim: 10%;
+}

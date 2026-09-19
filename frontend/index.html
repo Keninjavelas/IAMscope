@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-density="compact" data-accent="blue">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#141821" />
+    <meta
+      name="description"
+      content="IAMScope - a multi-tenant workbench for understanding, editing and auditing IAM policies over time."
+    />
+    <title>IAMScope</title>
+    <script>
+      // Applied before first paint so there is no theme flash and no layout shift.
+      (function () {
+        try {
+          var stored = localStorage.getItem('iamscope.ui.v1');
+          var theme = 'dark';
+          var density = 'compact';
+          var accent = 'blue';
+          if (stored) {
+            var parsed = JSON.parse(stored);
+            var state = parsed && parsed.state ? parsed.state : parsed;
+            if (state && state.theme) theme = state.theme;
+            if (state && state.density) density = state.density;
+            if (state && state.accent) accent = state.accent;
+          }
+          var prefersLight =
+            window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+          var resolved = theme === 'system' ? (prefersLight ? 'light' : 'dark') : theme;
+          var root = document.documentElement;
+          root.setAttribute('data-theme', resolved);
+          root.setAttribute('data-density', density);
+          root.setAttribute('data-accent', accent);
+          if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            root.setAttribute('data-reduced-motion', 'true');
+          }
+        } catch (error) {
+          /* first paint must never fail because of storage */
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <div id="portal-root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

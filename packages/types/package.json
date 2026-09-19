@@ -1,0 +1,20 @@
+{
+  "name": "@iamscope/types",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shared TypeScript types for IAMScope (wire/DTO shapes shared by backend and frontend).",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

@@ -1,0 +1,104 @@
+/* ============================================================================
+ * IAMScope - Tailwind v4 entry point + theme mapping.
+ *
+ * `@import 'tailwindcss'` first so the default theme exists, then the IAMScope
+ * token file which overrides `:root` values (css order wins for the same
+ * specificity). The `@theme inline` block below is what turns the runtime
+ * semantic variables into Tailwind utilities:
+ *
+ *   --color-bg      -> bg-bg, text-bg, border-bg, ...
+ *   --color-text    -> text-text, bg-text, ...
+ *   --color-accent  -> bg-accent, text-accent, ring-accent, ...
+ *
+ * `inline` is required: it inlines `var(--bg)` into the generated utility so the
+ * utility stays reactive to `[data-theme]` instead of freezing the value that
+ * happened to be active at build time.
+ * ========================================================================== */
+@import 'tailwindcss';
+@import '@iamscope/tokens/tokens.css';
+
+/* Theme is driven by `data-theme` on <html>, not by the OS media query. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+@theme inline {
+  /* --- Surfaces --------------------------------------------------------- */
+  --color-bg: var(--bg);
+  --color-bg-raised: var(--bg-raised);
+  --color-bg-overlay: var(--bg-overlay);
+  --color-bg-inset: var(--bg-inset);
+  --color-bg-hover: var(--bg-hover);
+  --color-bg-active: var(--bg-active);
+  --color-bg-selected: var(--bg-selected);
+
+  /* --- Borders ---------------------------------------------------------- */
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-border-subtle: var(--border-subtle);
+
+  /* --- Text ------------------------------------------------------------- */
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-text-subtle: var(--text-subtle);
+  --color-text-inverse: var(--text-inverse);
+
+  /* --- Accent ----------------------------------------------------------- */
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-active: var(--accent-active);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-accent-contrast: var(--accent-contrast);
+
+  /* --- Semantics -------------------------------------------------------- */
+  --color-success: var(--success);
+  --color-success-subtle: var(--success-subtle);
+  --color-danger: var(--danger);
+  --color-danger-subtle: var(--danger-subtle);
+  --color-warn: var(--warn);
+  --color-warn-subtle: var(--warn-subtle);
+  --color-info: var(--info);
+  --color-info-subtle: var(--info-subtle);
+  --color-focus: var(--focus);
+
+  /* --- IAM-specific semantics ------------------------------------------ */
+  --color-allow: var(--allow);
+  --color-deny: var(--deny);
+  --color-severity-low: var(--severity-low);
+  --color-severity-medium: var(--severity-medium);
+  --color-severity-high: var(--severity-high);
+  --color-diff-added: var(--diff-added);
+  --color-diff-added-bg: var(--diff-added-bg);
+  --color-diff-removed: var(--diff-removed);
+  --color-diff-removed-bg: var(--diff-removed-bg);
+  --color-diff-changed: var(--diff-changed);
+  --color-diff-changed-bg: var(--diff-changed-bg);
+
+  /* --- Graph ------------------------------------------------------------ */
+  --color-edge-assume-role: var(--edge-assume-role);
+  --color-edge-pass-role: var(--edge-pass-role);
+  --color-edge-attach: var(--edge-attach);
+  --color-edge-group: var(--edge-group);
+  --color-graph-node-user: var(--graph-node-user);
+  --color-graph-node-role: var(--graph-node-role);
+  --color-graph-node-group: var(--graph-node-group);
+  --color-graph-bg: var(--graph-bg);
+}
+
+/* Literal scales - values are static so a normal `@theme` block is correct.
+ * NOTE: spacing intentionally uses Tailwind's default 4px-based numeric scale,
+ * which already covers the spec's scale (0.5=2px, 1=4px, 1.5=6px, 2=8px, 3=12px,
+ * 4=16px, 6=24px, 8=32px, 12=48px, 16=64px). Only radii, font sizes and row
+ * heights need IAMScope-specific values. */
+@theme {
+  --radius-input: 4px;
+  --radius-card: 6px;
+  --radius-panel: 8px;
+  --radius-modal: 12px;
+
+  --text-11: 11px;
+  --text-12: 12px;
+  --text-13: 13px;
+  --text-14: 14px;
+  --text-16: 16px;
+  --text-20: 20px;
+  --text-28: 28px;
+}

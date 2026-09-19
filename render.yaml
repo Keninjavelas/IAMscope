@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: iamscope-api
+    runtime: node
+    plan: free
+    region: oregon
+    branch: main
+    rootDir: .
+    buildCommand: npm ci --include=dev && npm run build:packages && npm run build --workspace backend
+    startCommand: node backend/dist/index.js
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: MONGO_IDENTITY_URL
+        sync: false
+      - key: MONGO_DATA_URL
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: CSRF_SECRET
+        generateValue: true
+      - key: LOG_LEVEL
+        value: info
+      # APP_VERSION is deliberately NOT set here. It defaults to `package.json`'s version
+      # (see backend/src/env.ts), so setting it too would create two sources of truth that
+      # can drift. Bump the version in package.json when tagging a release.
+      # Explicit rather than relying on the zod default: `lax` is required because the SPA
+      # reaches the API through the Vercel rewrite, which makes every call same-origin.
+      # `none` would break the session on Safari (ITP blocks third-party cookies).
+      - key: COOKIE_SAMESITE
+        value: lax
+      # 12h idle timeout. 0 would disable the check entirely; 12h is long enough that no
+      # demo or review session is interrupted, but a stale abandoned session still expires
+      # the same day rather than living out the full 30-day token lifetime.
+      - key: SESSION_IDLE_MINUTES
+        value: '720'

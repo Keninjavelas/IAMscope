@@ -1,0 +1,51 @@
+{
+  "name": "iamscope",
+  "version": "1.0.0",
+  "private": true,
+  "description": "IAMScope - a local-first, multi-tenant IAM policy workbench with Impact, Graph, and Timeline lenses over one MongoDB data model.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "packages/*",
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "build:packages": "npm run build --workspace @iamscope/types --workspace @iamscope/schemas --workspace @iamscope/tokens",
+    "build:backend": "npm run build --workspace backend",
+    "build:frontend": "npm run build --workspace frontend",
+    "build": "npm run build:packages && npm run build:backend && npm run build:frontend",
+    "typecheck:packages": "npm run build:packages",
+    "typecheck:backend": "npm run typecheck --workspace backend",
+    "typecheck:frontend": "npm run typecheck --workspace frontend",
+    "typecheck": "npm run typecheck:packages && npm run typecheck:backend && npm run typecheck:frontend",
+    "test": "npm run build:packages && npm run test --workspace backend --if-present && npm run test --workspace frontend --if-present",
+    "test:backend": "npm run test --workspace backend",
+    "test:frontend": "npm run test --workspace frontend",
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier --write \"**/*.{ts,tsx,css,json,md,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,css,json,md,yml,yaml}\"",
+    "seed": "npm run seed --workspace backend",
+    "smoke": "node scripts/smoke.mjs",
+    "deploy:check": "node scripts/deploy-check.mjs",
+    "dev": "concurrently -n mongo,api,web -c blue,green,magenta \"npm:dev:mongo\" \"npm:dev:backend\" \"npm:dev:frontend\"",
+    "dev:mongo": "docker compose up mongo",
+    "dev:backend": "npm run dev --workspace backend",
+    "dev:frontend": "npm run dev --workspace frontend",
+    "clean": "node scripts/clean.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@typescript-eslint/eslint-plugin": "^8.70.0",
+    "@typescript-eslint/parser": "^8.70.0",
+    "concurrently": "^9.2.1",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "prettier": "^3.9.7",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.70.0"
+  }
+}
