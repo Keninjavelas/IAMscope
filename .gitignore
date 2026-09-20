@@ -22,6 +22,10 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# transient build / typecheck captures (never commit these)
+.build-*.txt
+.tsc-*.txt
+
 # test / coverage
 coverage/
 .nyc_output/
