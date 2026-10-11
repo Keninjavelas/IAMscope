@@ -7,7 +7,7 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://REPLACE-WITH-RENDER-URL/api/$1"
+      "destination": "https://iamscope.onrender.com/api/$1"
     },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
