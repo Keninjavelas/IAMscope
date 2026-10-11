@@ -57,7 +57,10 @@ npm run dev                  # mongo + api (:4000) + web (:3000) via concurrentl
 
 ### Seed credentials
 
-The seed is idempotent and safe to re-run. It prints the accounts it created:
+The seed is idempotent and safe to re-run. It prints the accounts it created. The password below
+is the development default; set `IAM_DEMO_PASSWORD` to a unique random value before seeding a
+deployed database. The configured password is never printed by the seed.
+Set it before the first seed: rerunning the idempotent seed does not change existing user passwords.
 
 | Role  | Email                  | Password             |
 | ----- | ---------------------- | -------------------- |

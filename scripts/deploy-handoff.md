@@ -117,7 +117,7 @@ build time, and the rewrite is what makes every call same-origin.
 
 The seed must run before `deploy:check`, which logs in as the demo owner. Render's free web
 service does not provide a dashboard shell, SSH, or one-off jobs. From a trusted local checkout,
-set `MONGO_IDENTITY_URL` and `MONGO_DATA_URL` to the two Atlas connection strings in the
+set `MONGO_IDENTITY_URL`, `MONGO_DATA_URL`, and a unique random `IAM_DEMO_PASSWORD` in the
 process environment, then run:
 
 ```powershell
@@ -128,9 +128,11 @@ Allow the machine's IP in Atlas while seeding if it is not already permitted. Do
 connection strings in the repo. A paid Render service with shell access can run the same command
 there instead. The seed exits non-zero with the real error on failure rather than hanging.
 
-The seed creates two accounts with the fixed demo password in `backend/src/seed.ts`, and
-`deploy:check` uses the demo owner. Treat this as a demo deployment. Before opening the service
-to real users, replace or rotate those credentials and update the deployed check accordingly.
+The seed creates two demo accounts with the configured password and does not print it. Set
+`DEPLOY_PASSWORD` to the same value when running `deploy:check`. The default password in
+`backend/src/seed.ts` is for local development only; production-mode seeding requires
+`IAM_DEMO_PASSWORD`.
+Set the value before the first seed; rerunning the seed does not rotate existing passwords.
 
 ### 5a. Render alone — localises an SSE failure to Render
 

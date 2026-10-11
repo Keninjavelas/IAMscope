@@ -1,7 +1,7 @@
 /**
  * Idempotent demo seed (Plan §22.4, §25 phase 11).
  *
- * Demo credentials (development only):
+ * Default demo credentials (development only):
  *   owner  demo@iamscope.dev     / iamscope-demo-2026
  *   admin  analyst@iamscope.dev  / iamscope-demo-2026
  *
@@ -40,7 +40,8 @@ import { computeEscalationPaths } from './services/escalation';
 import { runEvaluationNow } from './services/evaluationRunner';
 import { writeAuditEvent } from './services/audit';
 
-const DEMO_PASSWORD = 'iamscope-demo-2026';
+const DEFAULT_DEMO_PASSWORD = 'iamscope-demo-2026';
+const DEMO_PASSWORD = process.env.IAM_DEMO_PASSWORD ?? DEFAULT_DEMO_PASSWORD;
 const DEMO_EMAIL = 'demo@iamscope.dev';
 const ANALYST_EMAIL = 'analyst@iamscope.dev';
 const ORG_NAME = 'Acme Cloud';
@@ -796,13 +797,24 @@ function printReport(report: SeedReport): void {
   console.log(`created : ${created === '' ? '(nothing)' : created}`);
   console.log(`skipped : ${skipped === '' ? '(nothing)' : skipped}`);
   console.log('');
-  console.log('Demo credentials (development only):');
-  console.log(`  owner  ${DEMO_EMAIL} / ${DEMO_PASSWORD}`);
-  console.log(`  admin  ${ANALYST_EMAIL} / ${DEMO_PASSWORD}`);
+  console.log('Demo accounts:');
+  console.log(`  owner  ${DEMO_EMAIL}`);
+  console.log(`  admin  ${ANALYST_EMAIL}`);
+  console.log(
+    process.env.IAM_DEMO_PASSWORD
+      ? '  password supplied by IAM_DEMO_PASSWORD (not printed)'
+      : `  development password  ${DEFAULT_DEMO_PASSWORD}`,
+  );
   console.log(`  org    ${ORG_NAME} (${ORG_SLUG})`);
 }
 
 async function main(): Promise<void> {
+  if (env.NODE_ENV === 'production' && !process.env.IAM_DEMO_PASSWORD) {
+    throw new Error('IAM_DEMO_PASSWORD must be set when seeding in production');
+  }
+  if (process.env.IAM_DEMO_PASSWORD !== undefined && DEMO_PASSWORD.length < 16) {
+    throw new Error('IAM_DEMO_PASSWORD must be at least 16 characters');
+  }
   try {
     await connectIdentity();
     await connectData();
