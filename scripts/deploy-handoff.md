@@ -115,14 +115,22 @@ build time, and the rewrite is what makes every call same-origin.
 
 ## 5. Seed, then run the gate (go/no-go)
 
-The seed must run before `deploy:check`, which logs in as the demo owner.
+The seed must run before `deploy:check`, which logs in as the demo owner. Render's free web
+service does not provide a dashboard shell, SSH, or one-off jobs. From a trusted local checkout,
+set `MONGO_IDENTITY_URL` and `MONGO_DATA_URL` to the two Atlas connection strings in the
+process environment, then run:
 
 ```powershell
-# Render shell
 node backend/dist/seed.js
 ```
 
-It exits non-zero with the real error on failure rather than hanging.
+Allow the machine's IP in Atlas while seeding if it is not already permitted. Do not put the
+connection strings in the repo. A paid Render service with shell access can run the same command
+there instead. The seed exits non-zero with the real error on failure rather than hanging.
+
+The seed creates two accounts with the fixed demo password in `backend/src/seed.ts`, and
+`deploy:check` uses the demo owner. Treat this as a demo deployment. Before opening the service
+to real users, replace or rotate those credentials and update the deployed check accordingly.
 
 ### 5a. Render alone — localises an SSE failure to Render
 

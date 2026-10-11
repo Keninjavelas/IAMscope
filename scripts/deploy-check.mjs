@@ -237,6 +237,7 @@ async function main() {
   const before = streamed.length;
   const create = await request('POST', '/policies', {
     name: `deploy-check-${Date.now()}`,
+    changeReason: 'deploy-check live delivery probe',
     statements: [
       { sid: 'AllowCheck', effect: 'Allow', actions: ['s3:GetObject'], resources: ['arn:aws:s3:::acme-app-data/*'], conditions: [] },
     ],

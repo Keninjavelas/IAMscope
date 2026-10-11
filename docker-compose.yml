@@ -8,7 +8,19 @@ services:
     volumes:
       - mongo_data:/data/db
     healthcheck:
-      test: mongosh --quiet --eval "try { rs.status() } catch (e) { rs.initiate() }"
+      # A bare rs.initiate() advertises the container's own hostname, which only resolves
+      # inside the compose network - so host-side `npm run dev` dies with getaddrinfo
+      # ENOTFOUND once the driver enters replica-set discovery. `localhost` is reachable
+      # from the host through the published port below, so the documented host-side
+      # workflow works; the `backend` service here reaches it with directConnection instead.
+      test:
+        [
+          'CMD',
+          'mongosh',
+          '--quiet',
+          '--eval',
+          "try { rs.status() } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'localhost:27017' }] }) }",
+        ]
       interval: 10s
       timeout: 10s
       retries: 5
@@ -24,11 +36,17 @@ services:
     environment:
       NODE_ENV: development
       PORT: 4000
-      MONGO_IDENTITY_URL: mongodb://mongo:27017/iamscope_identity?replicaSet=rs0
-      MONGO_DATA_URL: mongodb://mongo:27017/iamscope_data?replicaSet=rs0
+      # The replica set advertises `localhost:27017` (see the `mongo` healthcheck), which
+      # inside this container is its own loopback. directConnection keeps the driver on the
+      # `mongo` socket it opened instead of re-resolving the advertised member; change
+      # streams still work because that socket is a replica set member, not a standalone.
+      MONGO_IDENTITY_URL: mongodb://mongo:27017/iamscope_identity?directConnection=true
+      MONGO_DATA_URL: mongodb://mongo:27017/iamscope_data?directConnection=true
       CORS_ORIGIN: http://localhost:3000
-      SESSION_SECRET: dev-secret
-      CSRF_SECRET: dev-secret
+      # Dev-only placeholders. env.ts enforces the 16-char minimum regardless of NODE_ENV,
+      # so these must stay at least 16 chars or this service exits at boot.
+      SESSION_SECRET: iamscope-dev-session-secret
+      CSRF_SECRET: iamscope-dev-csrf-secret
       LOG_LEVEL: debug
     depends_on:
       mongo:
