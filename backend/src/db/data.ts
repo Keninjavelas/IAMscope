@@ -23,6 +23,7 @@ export async function connectData(uri: string = env.MONGO_DATA_URL): Promise<Db>
   if (database !== null) return database;
 
   const next = new MongoClient(uri, {
+    autoSelectFamily: false,
     serverSelectionTimeoutMS: 10_000,
     connectTimeoutMS: 10_000,
     retryWrites: true,
