@@ -24,7 +24,6 @@ export async function connectIdentity(uri: string = env.MONGO_IDENTITY_URL): Pro
   if (database !== null) return database;
 
   const next = new MongoClient(uri, {
-    autoSelectFamily: false,
     family: 4,
     serverSelectionTimeoutMS: 10_000,
     connectTimeoutMS: 10_000,
