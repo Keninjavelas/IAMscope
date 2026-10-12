@@ -304,3 +304,23 @@ The three decisions above (D15–D17) were resolvable without an account. Three 
 ## D25. Repository hosted at https://github.com/Keninjavelas/IAMscope
 
 **Decision.** The IAMScope repository is hosted at `https://github.com/Keninjavelas/IAMscope`, private, under a personal GitHub account.
+
+---
+
+## D26. A burst of policy edits shares the latest-state evaluation run
+
+**Decision.** Plan §26 item 4 requires a new version and audit event for each policy edit, while evaluation runs are scheduled per edit and may coalesce within 500 ms. The acceptance check must wait for the debounce and verify the run reflects the latest state.
+
+**Why.** `enqueueEvaluation()` keys its timer by organization, replacing an earlier pending timer in a burst. `runEvaluationNow()` then reads the organization's scenarios and policy-dependent evaluations fresh from MongoDB. A consumer reading after the debounce sees the resulting latest state. It does not retain or evaluate every intermediate edit state.
+
+**Rejected alternative.** Removing the debounce to require a separate run for every rapid edit. That would increase work without changing the latest-state result used by the Impact lens. If intermediate states become a product requirement, the queue and acceptance wording must change together.
+
+---
+
+## D27. Optimistic updates, server-confirmed creates, and undo toasts have distinct behavior
+
+**Decision.** Plan §26 item 13 describes the behavior actually offered: edits and deletes of existing resources optimistically update client state and restore it with an error toast on failure; creates wait for server confirmation; supported destructive actions offer an undo toast on success. Query-like operations, including evaluate, do not present a guessed result or roll back.
+
+**Why.** The create hooks have no existing entity to replace and use success/error toasts. `useEvaluate()` returns a computed decision that cannot be predicted locally. Update/delete hooks snapshot cached state in `onMutate` and restore it in `onError`; `toast.undoable()` is issued on successful destructive actions, not on failed requests.
+
+**Rejected alternative.** Describing every React Query `useMutation()` operation as optimistic and every failure toast as undoable. That wording would make the acceptance criterion false even though the interaction design is deliberate.

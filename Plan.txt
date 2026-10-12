@@ -1547,7 +1547,7 @@ The project ships when, on the deployed Vercel + Render + Atlas stack:
 1. New user signs up, creates org, invites second user, second user accepts.
 2. Both see each other's presence in real time.
 3. Both CRUD policies, principals, resources, scenarios.
-4. Every policy edit creates version + audit event + evaluation run.
+4. Every policy edit creates a version and an audit event. Evaluation runs are scheduled per edit; bursts within 500ms may share a single run.
 5. Impact lens diffs any two runs with word-level JSON diff.
 6. Graph lens returns escalation paths, renders with semantic zoom, highlights paths on hover, shows live cursors.
 7. Timeline scrubber reconstructs state, snaps to events, shows live diff preview.
@@ -1556,7 +1556,7 @@ The project ships when, on the deployed Vercel + Render + Atlas stack:
 10. RBAC enforced: viewer can't mutate, member can't delete, admin can't delete org, owner can.
 11. API keys authenticate and respect scopes.
 12. Every interaction keyboard-reachable; command palette covers navigate, create, evaluate.
-13. Every mutation optimistic; failures roll back with undo toast.
+13. Existing-resource edits and deletes update the client optimistically; failures restore prior client state and show an error toast. Creates wait for server confirmation. Supported destructive actions offer an undo toast after success. Query-like operations (evaluate, list, get) report errors without rollback.
 14. WCAG AA passes; reduced motion respected; ARIA live announces SSE.
 15. Lighthouse 95+ all metrics; zero layout shift.
 16. Seed produces working demo org from clean DB.
