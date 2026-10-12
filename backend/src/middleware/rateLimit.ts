@@ -35,12 +35,17 @@ export interface RateLimitResult {
 }
 
 export function clientIp(req: Request): string {
+  if (typeof req.ip === 'string' && req.ip.trim() !== '') return req.ip;
+
   const forwarded = req.headers['x-forwarded-for'];
   if (typeof forwarded === 'string' && forwarded.trim() !== '') {
-    const first = forwarded.split(',')[0];
-    if (first !== undefined && first.trim() !== '') return first.trim();
+    const addresses = forwarded.split(',');
+    for (let i = addresses.length - 1; i >= 0; i -= 1) {
+      const address = addresses[i]?.trim();
+      if (address) return address;
+    }
   }
-  return req.ip ?? req.socket.remoteAddress ?? 'unknown';
+  return req.socket.remoteAddress ?? 'unknown';
 }
 
 /**

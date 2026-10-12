@@ -3,6 +3,7 @@
  * `{ data: null, error: { code, message, details?, requestId } }`.
  */
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
+import { MongoNetworkError, MongoServerSelectionError, MongoNetworkTimeoutError } from 'mongodb';
 import { ZodError } from 'zod';
 import type { ApiErrorBody, ApiResponse } from '@iamscope/types';
 import { AppError, badRequest, conflict, isDuplicateKeyError } from '../lib/errors';
@@ -98,6 +99,18 @@ function normalise(error: unknown): AppError {
 
   if (isDuplicateKeyError(error)) {
     return conflict('A record with that value already exists');
+  }
+
+  if (
+    error instanceof MongoNetworkError ||
+    error instanceof MongoServerSelectionError ||
+    error instanceof MongoNetworkTimeoutError
+  ) {
+    return new AppError(
+      'SERVICE_UNAVAILABLE',
+      'Database temporarily unavailable - please retry shortly',
+      503,
+    );
   }
 
   return new AppError('INTERNAL_ERROR', 'Internal server error');
