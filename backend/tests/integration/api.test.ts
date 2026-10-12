@@ -12,6 +12,7 @@ import { mintEventToken } from '../../src/auth/eventTokens';
 import { identity } from '../../src/db/identity';
 import { createApp } from '../../src/index';
 import { cancelPendingEvaluations } from '../../src/services/evaluationRunner';
+import { ensureMembership } from '../../src/services/org';
 import { connectTestDatabases, mongoAvailable, skipReason, stopTestMongo } from '../helpers/mongo';
 
 const available = await mongoAvailable();
@@ -278,6 +279,80 @@ describe.skipIf(!available)(`API integration (${available ? 'mongo ready' : skip
       expect(response.status).toBe(400);
       expect(response.body.error.code).toBe('BAD_REQUEST');
     });
+
+    it('enforces member, admin, and owner delete boundaries', async () => {
+      const policy = await owner
+        .post('/api/policies')
+        .set('X-CSRF-Token', ownerCsrf)
+        .send({
+          name: 'RBAC delete boundary',
+          statements: [
+            {
+              sid: 'Read',
+              effect: 'Allow',
+              actions: ['s3:GetObject'],
+              resources: ['*'],
+              conditions: [],
+            },
+          ],
+          changeReason: 'verify role delete boundaries',
+        });
+      expect(policy.status).toBe(201);
+
+      await ensureMembership(new ObjectId(orgId), new ObjectId(viewerUserId), 'member');
+      const memberSwitch = await viewer
+        .post('/api/auth/switch-org')
+        .set('X-CSRF-Token', viewerCsrf)
+        .send({ orgId });
+      expect(memberSwitch.status).toBe(200);
+      const memberCsrf = csrfFrom(memberSwitch) || viewerCsrf;
+
+      const memberDelete = await viewer
+        .delete(`/api/policies/${policy.body.data.id}`)
+        .set('X-CSRF-Token', memberCsrf);
+      expect(memberDelete.status).toBe(403);
+      expect(memberDelete.body.error.code).toBe('FORBIDDEN');
+
+      const admin = request.agent(app);
+      const adminSignup = await admin
+        .post('/api/auth/signup')
+        .set('X-Forwarded-For', nextTestIp())
+        .send({
+          email: 'org-admin@acme.test',
+          password: 'correct-horse-battery-9',
+          name: 'Org Admin',
+          orgName: 'Admin Home Org',
+        });
+      expect(adminSignup.status).toBe(201);
+      const adminCsrf = csrfFrom(adminSignup);
+      await ensureMembership(
+        new ObjectId(orgId),
+        new ObjectId(adminSignup.body.data.user.id),
+        'admin',
+      );
+      const adminSwitch = await admin
+        .post('/api/auth/switch-org')
+        .set('X-CSRF-Token', adminCsrf)
+        .send({ orgId });
+      expect(adminSwitch.status).toBe(200);
+
+      const adminDelete = await admin
+        .delete(`/api/orgs/${orgId}`)
+        .set('X-CSRF-Token', csrfFrom(adminSwitch) || adminCsrf);
+      expect(adminDelete.status).toBe(403);
+      expect(adminDelete.body.error.code).toBe('FORBIDDEN');
+
+      const throwaway = await owner
+        .post('/api/orgs')
+        .set('X-CSRF-Token', ownerCsrf)
+        .send({ name: 'Owner Delete Test Org' });
+      expect(throwaway.status).toBe(201);
+      const ownerDelete = await owner
+        .delete(`/api/orgs/${throwaway.body.data.id}`)
+        .set('X-CSRF-Token', ownerCsrf);
+      expect(ownerDelete.status).toBe(200);
+      expect(ownerDelete.body.data.success).toBe(true);
+    });
   });
 
   /* ---------------------------------------------------------------- */
@@ -494,6 +569,7 @@ describe.skipIf(!available)(`API integration (${available ? 'mongo ready' : skip
     let agent: ReturnType<typeof request.agent>;
     let csrf = '';
     let principalId = '';
+    let policyId = '';
 
     const principalArn = 'arn:aws:iam::123456789012:user/integration-user';
     const bucketArn = 'arn:aws:s3:::integration-bucket';
@@ -553,6 +629,7 @@ describe.skipIf(!available)(`API integration (${available ? 'mongo ready' : skip
           changeReason: 'baseline for the evaluate tests',
         });
       expect(policy.status).toBe(201);
+      policyId = policy.body.data.id;
 
       const attach = await agent
         .post(`/api/principals/${principalId}/policies/${policy.body.data.id}`)
@@ -646,6 +723,74 @@ describe.skipIf(!available)(`API integration (${available ? 'mongo ready' : skip
       const diff = await agent.get('/api/evaluations/diff');
       expect(diff.status).toBe(200);
       expect(diff.body.data.counts.total).toBe(0);
+    });
+
+    it('attributes a changed verdict to the exact policy edit audit event', async () => {
+      const scenario = await agent.post('/api/scenarios').set('X-CSRF-Token', csrf).send({
+        name: 'Attribution reports access',
+        principalArn,
+        action: 's3:GetObject',
+        resourceArn: objectArn,
+        expectedResult: 'Allow',
+      });
+      expect(scenario.status).toBe(201);
+
+      const before = await agent
+        .post('/api/evaluate')
+        .set('X-CSRF-Token', csrf)
+        .send({ principalArn, action: 's3:GetObject', resourceArn: objectArn });
+      expect(before.status).toBe(200);
+      expect(before.body.data.result).toBe('Allow');
+      const beforeRunId = before.body.data.run.id as string;
+
+      // Audit attribution uses an exclusive lower timestamp bound, so separate the
+      // first run from the edit even on clocks with millisecond precision.
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      const edit = await agent
+        .put(`/api/policies/${policyId}`)
+        .set('X-CSRF-Token', csrf)
+        .send({
+          statements: [
+            {
+              sid: 'DenyReports',
+              effect: 'Deny',
+              actions: ['s3:GetObject'],
+              resources: [objectArn],
+              conditions: [],
+            },
+          ],
+          changeReason: 'verify exact audit attribution',
+        });
+      expect(edit.status).toBe(200);
+
+      const after = await agent
+        .post('/api/evaluate')
+        .set('X-CSRF-Token', csrf)
+        .send({ principalArn, action: 's3:GetObject', resourceArn: objectArn });
+      expect(after.status).toBe(200);
+      expect(after.body.data.result).toBe('Deny');
+
+      const audit = await agent.get('/api/audit').query({
+        targetType: 'policy',
+        targetId: policyId,
+        action: 'policy.update',
+      });
+      expect(audit.status).toBe(200);
+      const editEvent = audit.body.data.items.find(
+        (event: { action: string; target: { id: string } }) =>
+          event.action === 'policy.update' && event.target.id === policyId,
+      );
+      expect(editEvent).toBeDefined();
+
+      const attribution = await agent.get('/api/audit/attribution').query({
+        scenarioId: scenario.body.data.id,
+        before: beforeRunId,
+        after: after.body.data.run.id,
+      });
+      expect(attribution.status).toBe(200);
+      expect(attribution.body.data.resultBefore).toBe('Allow');
+      expect(attribution.body.data.resultAfter).toBe('Deny');
+      expect(attribution.body.data.causes[0].auditEventId).toBe(editEvent.id);
     });
 
     it('serves the health endpoint without credentials', async () => {
