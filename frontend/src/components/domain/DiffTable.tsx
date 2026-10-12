@@ -390,10 +390,10 @@ export function DiffTable({ diff, className }: DiffTableProps): JSX.Element {
           <DiffEntryDetail entry={expanded} />
 
           <JsonDiff
-            mode="line"
-            title="Statements added or removed"
-            before={{ removed: expanded.removedStatements }}
-            after={{ added: expanded.addedStatements }}
+            mode="word"
+            title="Decision trace diff"
+            before={expanded.beforeTrace}
+            after={expanded.afterTrace}
           />
         </div>
       )}
