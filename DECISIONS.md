@@ -324,3 +324,17 @@ The three decisions above (D15–D17) were resolvable without an account. Three 
 **Why.** The create hooks have no existing entity to replace and use success/error toasts. `useEvaluate()` returns a computed decision that cannot be predicted locally. Update/delete hooks snapshot cached state in `onMutate` and restore it in `onError`; `toast.undoable()` is issued on successful destructive actions, not on failed requests.
 
 **Rejected alternative.** Describing every React Query `useMutation()` operation as optimistic and every failure toast as undoable. That wording would make the acceptance criterion false even though the interaction design is deliberate.
+
+---
+
+## Post-tag verification checklist
+
+These Plan §26 browser checks are deferred. None is marked PASS by the API and CLI checks. Run them against `https://ia-mscope.vercel.app` after release; if any fails, fix it and issue v1.0.1, then repeat the failed check and its neighboring flow.
+
+1. **§26 item 2 — presence.** Sign in as two users in the same org in separate browser windows. Open `/policies` in both. Each window must show the other's live presence, and the indicator must disappear after the other window closes.
+2. **§26 item 6 — graph interaction.** Open `/graph` with seeded escalation data. Confirm paths render, zoom changes detail, hovering highlights the selected path, and a second same-org window shows the other user's live cursor.
+3. **§26 item 7 — timeline interaction.** Open `/timeline`, drag and keyboard-step the scrubber across a known audit event, then inspect the diff preview. The displayed state must match the selected time, snap to the event, and show the corresponding change.
+4. **§26 item 9 — cross-tab delivery and isolation.** Open two windows in the same org and one in a different org at `/policies`. Edit a policy in the first window. The second must update within two seconds without refresh; the other org must receive no event or data change.
+5. **§26 item 12 — keyboard reachability.** On `/policies`, `/evaluate`, `/graph`, and `/timeline`, navigate controls using Tab, Shift+Tab, Enter, Space, and Escape. Open the palette with Ctrl/⌘+K and use its navigate, create, and evaluate commands. Every interaction must be reachable and usable without a mouse, with visible focus.
+6. **§26 item 14 — accessibility.** Run an automated WCAG AA audit on `/policies`, `/evaluate`, `/graph`, and `/timeline`; manually inspect labels, focus order, and contrast. Enable reduced motion in the OS and confirm animations respect it. With a screen reader running in one window, make a same-org mutation in another and confirm the ARIA live region announces the SSE update.
+7. **§26 item 15 — Lighthouse.** In a production browser profile run Lighthouse on `/`, `/policies`, `/evaluate`, `/graph`, and `/timeline` at the deployed Vercel URL. Each required score must be at least 95 and cumulative layout shift must be zero. Record reports and fix any failure in v1.0.1.
