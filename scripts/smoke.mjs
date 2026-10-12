@@ -333,6 +333,98 @@ async function main() {
     );
   }
 
+  const crudId = Date.now();
+  const principalArn = `arn:aws:iam::123456789012:user/smoke-crud-${crudId}`;
+  const resourceArn = `arn:aws:s3:::smoke-crud-${crudId}`;
+
+  const newPrincipal = await owner.post('/principals', {
+    type: 'User',
+    name: `smoke-crud-${crudId}`,
+    arn: principalArn,
+  });
+  assert('principal create works', newPrincipal.status === 201, `status=${newPrincipal.status}`);
+  const principalId = newPrincipal.data?.id;
+  if (principalId) {
+    const read = await owner.get(`/principals/${principalId}`);
+    assert('principal read works', read.status === 200 && read.data?.arn === principalArn);
+    const updated = await owner.put(`/principals/${principalId}`, {
+      name: `smoke-crud-updated-${crudId}`,
+    });
+    assert(
+      'principal update works',
+      updated.status === 200 && updated.data?.name === `smoke-crud-updated-${crudId}`,
+      `status=${updated.status}`,
+    );
+  } else {
+    record('principal read works', false, 'create returned no id');
+    record('principal update works', false, 'create returned no id');
+  }
+
+  const newResource = await owner.post('/resources', {
+    arn: resourceArn,
+    type: 's3-bucket',
+  });
+  assert('resource create works', newResource.status === 201, `status=${newResource.status}`);
+  const resourceId = newResource.data?.id;
+  if (resourceId) {
+    const read = await owner.get(`/resources/${resourceId}`);
+    assert('resource read works', read.status === 200 && read.data?.arn === resourceArn);
+    const updated = await owner.put(`/resources/${resourceId}`, { tags: { purpose: 'smoke' } });
+    assert(
+      'resource update works',
+      updated.status === 200 && updated.data?.tags?.purpose === 'smoke',
+      `status=${updated.status}`,
+    );
+  } else {
+    record('resource read works', false, 'create returned no id');
+    record('resource update works', false, 'create returned no id');
+  }
+
+  const newScenario = await owner.post('/scenarios', {
+    name: `smoke-crud-${crudId}`,
+    principalArn,
+    action: 's3:GetObject',
+    resourceArn,
+    expectedResult: 'Deny',
+  });
+  assert('scenario create works', newScenario.status === 201, `status=${newScenario.status}`);
+  const scenarioId = newScenario.data?.id;
+  if (scenarioId) {
+    const list = await owner.get(`/scenarios?q=smoke-crud-${crudId}`);
+    assert(
+      'scenario read works',
+      list.status === 200 && (list.data?.items ?? []).some((item) => item.id === scenarioId),
+      `status=${list.status}`,
+    );
+    const updated = await owner.put(`/scenarios/${scenarioId}`, {
+      name: `smoke-crud-updated-${crudId}`,
+    });
+    assert(
+      'scenario update works',
+      updated.status === 200 && updated.data?.name === `smoke-crud-updated-${crudId}`,
+      `status=${updated.status}`,
+    );
+    const deleted = await owner.del(`/scenarios/${scenarioId}`);
+    assert('scenario delete works', deleted.status === 200, `status=${deleted.status}`);
+  } else {
+    record('scenario read works', false, 'create returned no id');
+    record('scenario update works', false, 'create returned no id');
+    record('scenario delete works', false, 'create returned no id');
+  }
+
+  if (principalId) {
+    const deleted = await owner.del(`/principals/${principalId}`);
+    assert('principal delete works', deleted.status === 200, `status=${deleted.status}`);
+  } else {
+    record('principal delete works', false, 'create returned no id');
+  }
+  if (resourceId) {
+    const deleted = await owner.del(`/resources/${resourceId}`);
+    assert('resource delete works', deleted.status === 200, `status=${deleted.status}`);
+  } else {
+    record('resource delete works', false, 'create returned no id');
+  }
+
   console.log('\n── evaluation engine ──');
   const targetPrincipal = principalItems[0]?.arn ?? null;
   if (targetPrincipal) {
