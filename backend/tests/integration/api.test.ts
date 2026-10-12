@@ -327,7 +327,7 @@ describe.skipIf(!available)(`API integration (${available ? 'mongo ready' : skip
       const adminCsrf = csrfFrom(adminSignup);
       await ensureMembership(
         new ObjectId(orgId),
-        new ObjectId(adminSignup.body.data.user.id),
+        new ObjectId(adminSignup.body.data.user.id as string),
         'admin',
       );
       const adminSwitch = await admin
