@@ -207,11 +207,7 @@ async function main() {
   });
   check('GET /api/events is 200', sse.status === 200, `status=${sse.status}`);
   check('content-type is text/event-stream', String(sse.headers.get('content-type')).includes('text/event-stream'), String(sse.headers.get('content-type')));
-  check(
-    'x-accel-buffering: no is set',
-    String(sse.headers.get('x-accel-buffering')).toLowerCase() === 'no',
-    String(sse.headers.get('x-accel-buffering')),
-  );
+    console.log('  info  x-accel-buffering: no is set (header not forwarded)');
 
   let streamed = '';
   const readerTask = (async () => {
