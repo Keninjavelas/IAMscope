@@ -139,21 +139,21 @@ It runs against the **compiled** output, so `npm run build` must precede it. Exi
 
 `frontend/vercel.json` rewrites `/api/*` to the Render origin, so the browser talks to a single origin and the session cookie stays first-party. It also sets `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and long-lived immutable caching for `/assets/*`.
 
-The rewrite target ships as the placeholder `https://REPLACE-WITH-RENDER-URL/…`. It **must** be replaced with the real Render hostname before the first Vercel deploy — see [`scripts/deploy-handoff.md`](scripts/deploy-handoff.md).
+The production frontend is `https://ia-mscope.vercel.app`. Its `/api/*` rewrite targets `https://iamscope-api.onrender.com/api/*` — see [`frontend/vercel.json`](frontend/vercel.json).
 
 Production requirements:
 
 - Set `SESSION_SECRET` and `CSRF_SECRET` to distinct random values of 16+ characters. The backend refuses to boot in production with the development defaults.
-- Set `CORS_ORIGIN` to the deployed frontend origin.
+- Set `CORS_ORIGIN` to `https://ia-mscope.vercel.app`.
 - **Leave `VITE_API_URL` empty in production.** The rewrite is what makes every call same-origin; pointing it at the Render origin directly would make the session cookie cross-site, and with `COOKIE_SAMESITE=lax` the browser would stop sending it — login would appear to succeed and then every request would 401.
 - **Leave `COOKIE_SAMESITE` at `lax`.** `none` would be required only for a cross-origin API, and it makes the session a third-party cookie that Safari's ITP blocks outright.
 - **Put the Atlas cluster in the same region as the Render service** (`render.yaml` pins `oregon`, so use Atlas `us-west-2`). This API makes several database round trips per request, so a cross-region hop is felt directly.
-- A free-tier Render instance idles out; the deploy workflow pings `/api/health` to keep it warm.
+- A free-tier Render instance idles out; cron-job.org pings `https://iamscope-api.onrender.com/api/health` to keep it warm.
 
 Verify the deployed stack, rather than a local build, with:
 
 ```powershell
-npm run deploy:check --api https://<render-url> --web https://<vercel-url>
+npm run deploy:check --api https://iamscope-api.onrender.com --web https://ia-mscope.vercel.app
 ```
 
 `npm run smoke` cannot do this — it boots its own replica set and backend, so it only ever tests a local build.
