@@ -153,7 +153,7 @@ Production requirements:
 Verify the deployed stack, rather than a local build, with:
 
 ```powershell
-npm run deploy:check --api https://iamscope-api.onrender.com --web https://ia-mscope.vercel.app
+npm run deploy:check -- --api https://iamscope-api.onrender.com --web https://ia-mscope.vercel.app
 ```
 
 `npm run smoke` cannot do this — it boots its own replica set and backend, so it only ever tests a local build.

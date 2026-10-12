@@ -141,7 +141,7 @@ a deployed frontend and does not need you to hand-copy a session cookie. That me
 Render-only gate is possible before Vercel exists:
 
 ```powershell
-npm run deploy:check --api https://<render-url>
+npm run deploy:check -- --api https://<render-url>
 ```
 
 This is the check the plan could not previously express. If the SSE assertions fail here,
@@ -151,7 +151,7 @@ Vercel's edge — a different fix.
 ### 5b. Through both proxies
 
 ```powershell
-npm run deploy:check --api https://<render-url> --web https://<vercel-url>
+npm run deploy:check -- --api https://<render-url> --web https://<vercel-url>
 ```
 
 `deploy-check` also asserts the session cookie's `httpOnly` / `Secure` / `SameSite`
