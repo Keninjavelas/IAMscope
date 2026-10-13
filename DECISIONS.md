@@ -338,3 +338,25 @@ These Plan §26 browser checks are deferred. None is marked PASS by the API and 
 5. **§26 item 12 — keyboard reachability.** On `/policies`, `/evaluate`, `/graph`, and `/timeline`, navigate controls using Tab, Shift+Tab, Enter, Space, and Escape. Open the palette with Ctrl/⌘+K and use its navigate, create, and evaluate commands. Every interaction must be reachable and usable without a mouse, with visible focus.
 6. **§26 item 14 — accessibility.** Run an automated WCAG AA audit on `/policies`, `/evaluate`, `/graph`, and `/timeline`; manually inspect labels, focus order, and contrast. Enable reduced motion in the OS and confirm animations respect it. With a screen reader running in one window, make a same-org mutation in another and confirm the ARIA live region announces the SSE update.
 7. **§26 item 15 — Lighthouse.** In a production browser profile run Lighthouse on `/`, `/policies`, `/evaluate`, `/graph`, and `/timeline` at the deployed Vercel URL. Each required score must be at least 95 and cumulative layout shift must be zero. Record reports and fix any failure in v1.0.1.
+
+---
+
+## v1.0.0 release scope
+
+**Decision (2026-10-13).** Release the deployed system with explicit post-tag verification. The tag records the source as it shipped; it does not assert that the browser or account-dashboard checks below passed.
+
+**Verified §26 items.** Items 1 (signup, org creation, invite and acceptance), 3 (CRUD for policies, principals, resources and scenarios), 4 (policy versions, audit events and scheduled evaluation), 5 (evaluation diff and word-level diff component), 8 (the attribution result names the exact policy-edit audit event), 10 (viewer, member, admin and owner authorization boundaries), 11 (scoped API keys), 16 (seeded demo data and working deployed reads), and 17 (local and deployed setup documentation). Evidence is the passing 69/69 smoke run, 151 backend and 47 frontend tests, 35/35 deployed-stack check, and the live Render/Vercel health checks recorded on 2026-10-12. Automated checks cover these behaviors at their tested layers; they do not stand in for the browser checks below.
+
+**Deferred §26 browser items.** Use `https://ia-mscope.vercel.app` with real browser sessions:
+
+- **2 — presence:** sign in as two same-org users in separate browser windows at `/policies`; each must see the other's live avatar within five seconds.
+- **6 — graph visuals:** at `/graph`, find escalation paths, wheel-zoom and hover a path with a second same-org user present; nodes, semantic detail, highlighted path and live cursor must render.
+- **7 — timeline:** at `/timeline`, scrub 14 days back and step across an audit event; reconstructed state must change at the selected time and the panel must show the event's diff.
+- **9 — SSE and isolation:** edit a policy in one of two same-org `/policies` windows, then repeat from a different-org private window; the peer must update within two seconds without refresh and the other org must receive no event.
+- **12 — keyboard:** on `/policies`, Tab through visible focus, open help with `?`, open the palette with Ctrl/⌘+K, navigate to `/evaluate`, then use `G` followed by `P` to return; all controls must work without a mouse.
+- **14 — accessibility:** audit `/`, `/policies` and `/graph` for WCAG AA errors, enable OS reduced motion, and use a screen reader on `/evaluate` while running an evaluation; there must be zero audit errors, no unwanted transitions, and an audible ARIA live result.
+- **15 — Lighthouse:** run production Lighthouse on `/`, `/policies` and `/graph`; performance, accessibility, best practices and SEO must each reach 95 or higher, with CLS below 0.1.
+
+**Deferred dashboard checks.** Vercel project identity and settings (GitHub repository `Keninjavelas/IAMscope`, root `frontend`, framework Vite, output `dist`, `VITE_API_URL` absent or empty) and cron-job.org delivery (health URL `https://iamscope-api.onrender.com/api/health`, ten-minute interval, successful last execution and a scheduled next execution) require a signed-in dashboard session. Both dashboards displayed sign-in screens on 2026-10-13, so neither is marked verified.
+
+If a deferred check fails after tagging, fix it, cut v1.0.1 within 72 hours, and rerun the failed check. The v1.0.0 tag remains a historical snapshot of the working deployed system.
