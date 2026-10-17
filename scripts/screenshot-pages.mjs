@@ -45,7 +45,9 @@ const ROUTES = [
   { name: 'scenarios', path: '/scenarios' },
   { name: 'evaluate', path: '/evaluate' },
   { name: 'impact', path: '/impact' },
-  { name: 'graph', path: '/graph', ready: 'canvas' },
+  // No readiness selector: the graph canvas only exists after the user runs a
+  // traversal, so requiring it would fail a page that is rendering correctly.
+  { name: 'graph', path: '/graph' },
   { name: 'timeline', path: '/timeline' },
   { name: 'audit', path: '/audit' },
   { name: 'admin-users', path: '/admin/users', ready: 'table thead th' },
@@ -141,14 +143,30 @@ async function main() {
     let documentStatus = null;
 
     try {
-      const response = await page.goto(`${BASE}${route.path}`, {
-        waitUntil: 'networkidle',
-        timeout: 30_000,
-      });
-      documentStatus = response === null ? null : response.status();
+      // The deployed API intermittently answers 502 (the Render origin flapping).
+      // A 502 on /auth/me leaves the shell on "Loading page" forever, so a single
+      // attempt would capture a skeleton and call it a success. Retry the load a
+      // bounded number of times before failing the route.
+      for (let attempt = 1; ; attempt += 1) {
+        const response = await page.goto(`${BASE}${route.path}`, {
+          waitUntil: 'networkidle',
+          timeout: 30_000,
+        });
+        documentStatus = response === null ? null : response.status();
 
-      // Every workbench view renders a page heading; skeletons mean "still loading".
-      await page.waitForSelector('main h1', { timeout: 15_000 });
+        try {
+          await page.waitForSelector('main h1', { timeout: 10_000 });
+          break;
+        } catch (error) {
+          const body = await page.locator('body').innerText();
+          const transient = body.includes('Loading page') || (documentStatus ?? 0) >= 500;
+          if (!transient || attempt >= 3) throw error;
+          console.log(
+            `    attempt ${attempt}: still loading (doc=${documentStatus}); retrying in 3s`,
+          );
+          await page.waitForTimeout(3000);
+        }
+      }
       await page
         .waitForFunction(() => document.querySelectorAll('.skeleton').length === 0, {
           timeout: 15_000,
