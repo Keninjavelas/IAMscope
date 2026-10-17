@@ -46,6 +46,12 @@ desktop.ini
 # mongo local volume (docker named volume is preferred, this is a fallback)
 .mongo-data/
 
+# local plugin output and debug artifacts (never commit these)
+.buyer-execution-hooks/
+verification/
+findings-rolling.md
+har-*.json
+
 # misc
 .cache/
 .turbo/
