@@ -57,7 +57,11 @@ const MembersPage = lazy(() => import('@/features/orgs/MembersPage'));
 const InvitationsPage = lazy(() => import('@/features/orgs/InvitationsPage'));
 const ApiKeysPage = lazy(() => import('@/features/orgs/ApiKeysPage'));
 
-const AdminUsersPage = lazy(() => import('@/features/admin/AdminUsersPage'));
+// Loaded statically, not via lazy(): the admin route is only reached after the
+// platform-admin guard finishes hydrating, and mounting a lazy page as the result of
+// that state update suspends during a synchronous render (React error #426). The
+// route is admin-only, so the extra chunk weight is not on any normal path.
+import AdminUsersPage from '@/features/admin/AdminUsersPage';
 const PoliciesPage = lazy(() => import('@/features/policies/PoliciesPage'));
 const PolicyDetailPage = lazy(() => import('@/features/policies/PolicyDetailPage'));
 const PolicyVersionsPage = lazy(() => import('@/features/policies/PolicyVersionsPage'));
