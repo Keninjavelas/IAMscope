@@ -16,6 +16,12 @@ const DEFAULT_STATUS: Record<ApiErrorCode, number> = {
   PAYLOAD_TOO_LARGE: 413,
   INTERNAL_ERROR: 500,
   SERVICE_UNAVAILABLE: 503,
+  /**
+   * Client-side only: the browser aborted the request after the client timeout.
+   * The server never emits this; `0` marks it as "no HTTP status" so the map stays
+   * exhaustive over `ApiErrorCode`.
+   */
+  NETWORK_TIMEOUT: 0,
 };
 
 export class AppError extends Error {
