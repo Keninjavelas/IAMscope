@@ -37,19 +37,24 @@ const ORG_ID = '6ad30e6dcfb2ee8079bea812';
  * makes a lazy route suspend during a synchronous update (React error #426), which
  * crashes the page under an error boundary.
  */
+/**
+ * Navigation targets the app's own anchors by href. Matching on accessible name is
+ * brittle - nav items include a description in their name - whereas the href is the
+ * exact route the router will handle.
+ */
 const ROUTES = [
-  { name: 'home', path: '/', link: null },
-  { name: 'policies', path: '/policies', link: /^Policies/ },
-  { name: 'principals', path: '/principals', link: /^Principals/ },
-  { name: 'resources', path: '/resources', link: /^Resources/ },
-  { name: 'scenarios', path: '/scenarios', link: /^Scenarios/ },
-  { name: 'evaluate', path: '/evaluate', link: /^Evaluate/ },
-  { name: 'impact', path: '/impact', link: /^Impact/ },
-  { name: 'graph', path: '/graph', link: /^Graph/ },
-  { name: 'timeline', path: '/timeline', link: /^Timeline/ },
-  { name: 'audit', path: '/audit', link: /^Audit/ },
-  { name: 'admin-users', path: '/admin/users', link: /^Admin$/ },
-  { name: 'org-settings', path: `/orgs/${ORG_ID}/settings`, link: /^Settings/ },
+  { name: 'home', path: '/', href: null },
+  { name: 'policies', path: '/policies', href: '/policies' },
+  { name: 'principals', path: '/principals', href: '/principals' },
+  { name: 'resources', path: '/resources', href: '/resources' },
+  { name: 'scenarios', path: '/scenarios', href: '/scenarios' },
+  { name: 'evaluate', path: '/evaluate', href: '/evaluate' },
+  { name: 'impact', path: '/impact', href: '/impact' },
+  { name: 'graph', path: '/graph', href: '/graph' },
+  { name: 'timeline', path: '/timeline', href: '/timeline' },
+  { name: 'audit', path: '/audit', href: '/audit' },
+  { name: 'admin-users', path: '/admin/users', href: '/admin/users' },
+  { name: 'org-settings', path: `/orgs/${ORG_ID}/settings`, href: `/orgs/${ORG_ID}/settings` },
 ];
 
 const OUT_DIR = join(process.cwd(), 'screenshots');
@@ -147,10 +152,10 @@ async function main() {
         await page.waitForTimeout(SETTLE_MS);
       } else {
         const clicked =
-          route.link === null
+          route.href === null
             ? false
             : await page
-                .getByRole('link', { name: route.link })
+                .locator(`a[href="${route.href}"]`)
                 .first()
                 .click({ timeout: 8000 })
                 .then(() => true)

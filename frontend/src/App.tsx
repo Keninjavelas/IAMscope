@@ -10,6 +10,11 @@ import {
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { ApiError } from '@/api/client';
+// Statically imported on purpose: a lazy guard wrapping a lazy page makes the route
+// element suspend twice during a synchronous navigation, which React rejects with
+// error #426 ("a component suspended while responding to synchronous input").
+// The guard is ~1KB of logic, so there is nothing to gain from splitting it.
+import RequirePlatformAdmin from '@/features/admin/RequirePlatformAdmin';
 import { useMe } from '@/api/queries/auth';
 import { ARIAAnnouncer } from '@/components/app/ARIAAnnouncer';
 import { AppShell } from '@/components/app/AppShell';
@@ -53,7 +58,6 @@ const InvitationsPage = lazy(() => import('@/features/orgs/InvitationsPage'));
 const ApiKeysPage = lazy(() => import('@/features/orgs/ApiKeysPage'));
 
 const AdminUsersPage = lazy(() => import('@/features/admin/AdminUsersPage'));
-const RequirePlatformAdmin = lazy(() => import('@/features/admin/RequirePlatformAdmin'));
 const PoliciesPage = lazy(() => import('@/features/policies/PoliciesPage'));
 const PolicyDetailPage = lazy(() => import('@/features/policies/PolicyDetailPage'));
 const PolicyVersionsPage = lazy(() => import('@/features/policies/PolicyVersionsPage'));
