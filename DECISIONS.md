@@ -360,3 +360,19 @@ These Plan §26 browser checks are deferred. None is marked PASS by the API and 
 **Deferred dashboard checks.** Vercel project identity and settings (GitHub repository `Keninjavelas/IAMscope`, root `frontend`, framework Vite, output `dist`, `VITE_API_URL` absent or empty) and cron-job.org delivery (health URL `https://iamscope-api.onrender.com/api/health`, ten-minute interval, successful last execution and a scheduled next execution) require a signed-in dashboard session. Both dashboards displayed sign-in screens on 2026-10-13, so neither is marked verified.
 
 If a deferred check fails after tagging, fix it, cut v1.0.1 within 72 hours, and rerun the failed check. The v1.0.0 tag remains a historical snapshot of the working deployed system.
+
+## Deployed-stack outage: failure localisation (2026-10-17)
+
+**Finding.** The Render origin never answers. DNS resolves to the Render/Cloudflare edge (`216.24.57.16`, `216.24.57.18`), TCP connects, TLS negotiates (ALPN `http/1.1`), the request is sent, and no HTTP status line ever arrives: `/api/health`, `/api/health/ready` and `/` all return `HTTP=000` at the 15s cap with 0 bytes. Through the Vercel rewrite the same calls surface as `502 ROUTER_EXTERNAL_TARGET_ERROR` after ~120s. A bound-but-throwing backend would answer 5xx quickly, so this is the origin-process layer: `bootstrap()` awaits `connectIdentity()`/`connectData()` and calls `process.exit(1)` on failure, so the port is never bound. Credential/env work on Render is required; no repository change can address it.
+
+**Evidence preserved** (the raw browser notes were held in `findings-rolling.md`, deleted after this record):
+
+- Literal 502 body: `An error occurred with this application.\n\nROUTER_EXTERNAL_TARGET_ERROR\n\nbom1::nlhbz-1792208696035-c3e73a11298b`.
+- Protected pages render only the `Loading page` status: `RequireAuth` gates on `/api/auth/me`, which never settles, so `GET /api/{policies,principals,scenarios}` is never issued.
+- `/login` renders fully and fires no `/api/` request, confirming the SPA and router are intact.
+
+## Smoke harness is self-contained (2026-10-17)
+
+**Decision.** `scripts/smoke.mjs` boots its own environment: a `MongoMemoryReplSet` (count 1, wiredTiger), `spawn(process.execPath, ['backend/dist/index.js'])` on `SMOKE_PORT` (default 4123), then `backend/dist/seed.js`, then drives the live HTTP API. It requires no externally running backend.
+
+An earlier report claimed it depended on a process already listening on `:4000`. That claim was made without reading the script and is **retracted**; the 69/69 results are reproducible from a clean checkout after `npm install && npm run build`. Because smoke executes the built artefact, it is a valid check of the compiled backend rather than of an arbitrary local process.
