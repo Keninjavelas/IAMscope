@@ -101,7 +101,10 @@ async function main() {
     }
   });
   page.on('requestfailed', (request) => {
-    failedRequests.push(`FAILED ${new URL(request.url()).pathname}`);
+    // errorText separates a real failure from `net::ERR_ABORTED`, which is what a
+    // React Query cancellation looks like when a key changes mid-flight.
+    const reason = request.failure()?.errorText ?? 'unknown';
+    failedRequests.push(`FAILED ${new URL(request.url()).pathname} (${reason})`);
   });
 
   console.log(`Launching Chromium ${browser.version()} at ${WIDTH}x${HEIGHT}`);
