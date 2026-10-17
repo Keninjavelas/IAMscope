@@ -28,6 +28,8 @@ const session = vi.hoisted(() => ({ isPlatformAdmin: true }));
 
 vi.mock('@/stores/session', () => ({
   useCurrentUser: () => ({ id: 'u1', email: 'demo@iamscope.dev', ...session }),
+  // The guard waits for hydration before deciding; tests render a settled session.
+  useSessionHydrated: () => true,
 }));
 
 // Imported after the mocks so the module graph picks them up.

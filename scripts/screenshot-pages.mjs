@@ -2,12 +2,20 @@
 /**
  * Captures a full-page screenshot of every workbench route.
  *
- * Logs in once, then visits each route in the same browser context so the session
- * cookie is reused. Layout note: the app scrolls inside <main>, not the document,
- * so a plain `fullPage` capture would only get the first viewport. The script
- * measures the scrolling element and grows the viewport to fit before capturing.
+ * Navigation is a plain `page.goto` per route — no synthetic history events. A
+ * `popstate` dispatch bypasses React Router's transition, which makes a lazy route
+ * suspend during a synchronous update and fail with React error #426. A full load is
+ * fine here because readiness is awaited explicitly rather than assumed.
  *
+ * Three guards make a broken capture impossible to mistake for a good one:
+ *   1. The document HTTP status is logged per route.
+ *   2. Failed requests and 4xx/5xx responses are logged.
+ *   3. A capture that matches the error boundary ("This page crashed") throws.
+ *
+ * Usage:
  *   node scripts/screenshot-pages.mjs
+ *   node scripts/screenshot-pages.mjs --route /admin/users
+ *   node scripts/screenshot-pages.mjs --route /orgs/<id>/settings
  *
  * Output: screenshots/<name>.png (git-ignored).
  */
@@ -19,45 +27,43 @@ const BASE = 'https://ia-mscope.vercel.app';
 const EMAIL = 'keninjavelas@gmail.com';
 
 /**
- * The brief supplied the Atlas database password here. That is not the app
- * password, so we try it first and fall back to the credential the account was
- * actually created with. Whichever succeeds is logged.
+ * The brief supplied the Atlas database password. The app password is the one the
+ * account was created with, so it is tried first to spend a single attempt against
+ * the login rate limiter.
  */
 const CANDIDATES = ['AdminTest123!', 'Tbmi-741'];
 
 const WIDTH = 1440;
 const HEIGHT = 900;
-const SETTLE_MS = 1500;
-
 const ORG_ID = '6ad30e6dcfb2ee8079bea812';
 
-/**
- * `link` is the visible nav label used to reach the route by CLICKING, which is how a
- * user actually navigates. Synthetic popstate bypasses React Router's transition and
- * makes a lazy route suspend during a synchronous update (React error #426), which
- * crashes the page under an error boundary.
- */
-/**
- * Navigation targets the app's own anchors by href. Matching on accessible name is
- * brittle - nav items include a description in their name - whereas the href is the
- * exact route the router will handle.
- */
 const ROUTES = [
-  { name: 'home', path: '/', href: null },
-  { name: 'policies', path: '/policies', href: '/policies' },
-  { name: 'principals', path: '/principals', href: '/principals' },
-  { name: 'resources', path: '/resources', href: '/resources' },
-  { name: 'scenarios', path: '/scenarios', href: '/scenarios' },
-  { name: 'evaluate', path: '/evaluate', href: '/evaluate' },
-  { name: 'impact', path: '/impact', href: '/impact' },
-  { name: 'graph', path: '/graph', href: '/graph' },
-  { name: 'timeline', path: '/timeline', href: '/timeline' },
-  { name: 'audit', path: '/audit', href: '/audit' },
-  { name: 'admin-users', path: '/admin/users', href: '/admin/users' },
-  { name: 'org-settings', path: `/orgs/${ORG_ID}/settings`, href: `/orgs/${ORG_ID}/settings` },
+  { name: 'home', path: '/' },
+  { name: 'policies', path: '/policies' },
+  { name: 'principals', path: '/principals' },
+  { name: 'resources', path: '/resources' },
+  { name: 'scenarios', path: '/scenarios' },
+  { name: 'evaluate', path: '/evaluate' },
+  { name: 'impact', path: '/impact' },
+  { name: 'graph', path: '/graph', ready: 'canvas' },
+  { name: 'timeline', path: '/timeline' },
+  { name: 'audit', path: '/audit' },
+  { name: 'admin-users', path: '/admin/users', ready: 'table thead th' },
+  { name: 'org-settings', path: `/orgs/${ORG_ID}/settings` },
 ];
 
 const OUT_DIR = join(process.cwd(), 'screenshots');
+
+/** Error-boundary marker; a capture containing this is a failed capture. */
+const CRASH_MARKER = 'This page crashed';
+
+function parseRouteFilter(argv) {
+  const index = argv.indexOf('--route');
+  if (index === -1) return null;
+  const value = argv[index + 1];
+  if (value === undefined) throw new Error('--route requires a path, e.g. --route /admin/users');
+  return value;
+}
 
 async function attemptLogin(page, password) {
   await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' });
@@ -73,22 +79,8 @@ async function attemptLogin(page, password) {
   }
 }
 
-/**
- * Client-side navigation.
- *
- * A full `page.goto` reloads the SPA from scratch, and on this deployment that loses
- * the authenticated session (the reloaded document comes back 401 and every page
- * renders a skeleton). Pushing history keeps the in-memory session, which is how a
- * real user moves around the app.
- */
-async function spaGo(page, path) {
-  await page.evaluate((target) => {
-    window.history.pushState({}, '', target);
-    window.dispatchEvent(new PopStateEvent('popstate'));
-  }, path);
-}
-
 async function main() {
+  const routeFilter = parseRouteFilter(process.argv.slice(2));
   mkdirSync(OUT_DIR, { recursive: true });
 
   const browser = await chromium.launch({ headless: true });
@@ -100,26 +92,23 @@ async function main() {
     if (message.type() === 'error') consoleErrors.push(message.text());
   });
 
-  // Where do API calls actually go, and where does the session cookie live? If the
-  // bundle posts to the API origin directly, the cookie is third-party and
-  // SameSite=Lax stops the browser sending it.
-  const apiOrigins = new Set();
-  page.on('request', (request) => {
-    const url = new URL(request.url());
-    if (url.pathname.startsWith('/api/')) apiOrigins.add(url.origin);
+  let failedRequests = [];
+  page.on('response', (response) => {
+    if (response.status() >= 400) {
+      failedRequests.push(`${response.status()} ${new URL(response.url()).pathname}`);
+    }
+  });
+  page.on('requestfailed', (request) => {
+    failedRequests.push(`FAILED ${new URL(request.url()).pathname}`);
   });
 
   console.log(`Launching Chromium ${browser.version()} at ${WIDTH}x${HEIGHT}`);
 
   let loggedIn = false;
-  let usedPassword = null;
-  for (const candidate of CANDIDATES) {
+  for (const [index, candidate] of CANDIDATES.entries()) {
     loggedIn = await attemptLogin(page, candidate);
-    console.log(`  login with candidate #${CANDIDATES.indexOf(candidate) + 1}: ${loggedIn ? 'OK' : 'FAILED'}`);
-    if (loggedIn) {
-      usedPassword = candidate;
-      break;
-    }
+    console.log(`  login candidate #${index + 1}: ${loggedIn ? 'OK' : 'FAILED'}`);
+    if (loggedIn) break;
   }
 
   if (!loggedIn) {
@@ -128,55 +117,54 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-  console.log(`  authenticated as ${EMAIL} (password candidate #${CANDIDATES.indexOf(usedPassword) + 1})`);
 
-  // The login redirect happens before `/api/auth/me` resolves. Navigating during that
-  // window makes RequireAuth bounce to /login, so wait for a signed-in-only element
-  // (the sidebar link) to exist before capturing anything.
+  // Wait for a signed-in-only element before touching any route, otherwise the first
+  // navigation can happen while /auth/me is still in flight and bounce to /login.
   await page
     .waitForSelector('a[href="/policies"]', { timeout: 25_000 })
     .catch(() => console.log('  ! sidebar did not appear; continuing anyway'));
-  await page.waitForTimeout(600);
 
-  const jar = await context.cookies();
-  console.log(
-    `  cookies: ${jar.map((cookie) => `${cookie.name}@${cookie.domain}(sameSite=${cookie.sameSite})`).join(' | ') || '(none)'}`,
-  );
+  const targets =
+    routeFilter === null ? ROUTES : ROUTES.filter((route) => route.path === routeFilter);
+
+  if (targets.length === 0) {
+    console.error(`No route matches ${routeFilter}`);
+    await browser.close();
+    process.exitCode = 1;
+    return;
+  }
 
   const results = [];
 
-  for (const [index, route] of ROUTES.entries()) {
+  for (const route of targets) {
+    failedRequests = [];
+    let documentStatus = null;
+
     try {
-      if (index === 0) {
-        // Already on "/" from the login redirect.
-        await page.waitForTimeout(SETTLE_MS);
-      } else {
-        const clicked =
-          route.href === null
-            ? false
-            : await page
-                .locator(`a[href="${route.href}"]`)
-                .first()
-                .click({ timeout: 8000 })
-                .then(() => true)
-                .catch(() => false);
+      const response = await page.goto(`${BASE}${route.path}`, {
+        waitUntil: 'networkidle',
+        timeout: 30_000,
+      });
+      documentStatus = response === null ? null : response.status();
 
-        if (!clicked) {
-          console.log(`    (no nav link for ${route.name}; falling back to history)`);
-          await spaGo(page, route.path);
-        }
-        await page.waitForTimeout(SETTLE_MS);
+      // Every workbench view renders a page heading; skeletons mean "still loading".
+      await page.waitForSelector('main h1', { timeout: 15_000 });
+      await page
+        .waitForFunction(() => document.querySelectorAll('.skeleton').length === 0, {
+          timeout: 15_000,
+        })
+        .catch(() => {});
 
-        // A guard may still bounce the first navigation while the session settles.
-        const landed = new URL(page.url()).pathname;
-        if (landed !== route.path) {
-          await page.waitForTimeout(1200);
-          await spaGo(page, route.path);
-          await page.waitForTimeout(SETTLE_MS);
-        }
+      if (route.ready !== undefined) {
+        await page.waitForSelector(route.ready, { timeout: 15_000 });
       }
 
-      // Grow the viewport to fit the inner scrolling container, then capture.
+      const crashCount = await page.locator(`text=${CRASH_MARKER}`).count();
+      if (crashCount > 0) {
+        throw new Error(`rendered the React error boundary ("${CRASH_MARKER}")`);
+      }
+
+      // Grow the viewport to fit the inner scrolling container.
       const contentHeight = await page.evaluate(() => {
         const main = document.querySelector('main');
         return Math.max(
@@ -194,33 +182,35 @@ async function main() {
       const size = statSync(file).size;
 
       const finalPath = new URL(page.url()).pathname;
-      const redirected = finalPath !== route.path ? ` (redirected to ${finalPath})` : '';
+      const note = finalPath !== route.path ? ` (redirected to ${finalPath})` : '';
+      const failedNote =
+        failedRequests.length === 0 ? '' : ` failed=[${[...new Set(failedRequests)].join(', ')}]`;
 
-      results.push({ name: route.name, file, size, ok: true, note: redirected });
+      results.push({ name: route.name, size, ok: true });
       console.log(
-        `  captured ${route.name.padEnd(13)} ${route.path.padEnd(52)} ${String(size).padStart(8)} bytes${redirected}`,
+        `  captured ${route.name.padEnd(13)} ${route.path.padEnd(50)} ${String(size).padStart(8)}B ` +
+          `doc=${documentStatus}${note}${failedNote}`,
       );
 
       await page.setViewportSize({ width: WIDTH, height: HEIGHT });
     } catch (error) {
-      results.push({ name: route.name, file: null, size: 0, ok: false, note: error.message });
-      console.log(`  FAILED   ${route.name.padEnd(13)} ${route.path} -> ${error.message}`);
+      results.push({ name: route.name, size: 0, ok: false });
+      console.log(
+        `  FAILED   ${route.name.padEnd(13)} ${route.path.padEnd(50)} doc=${documentStatus} -> ${error.message.split('\n')[0]}`,
+      );
+      await page.setViewportSize({ width: WIDTH, height: HEIGHT });
     }
   }
 
   const failed = results.filter((entry) => !entry.ok);
-  const small = results.filter((entry) => entry.ok && entry.size < 10_240);
-
   console.log('\nSummary');
-  console.log(`  routes   : ${results.length}`);
-  console.log(`  captured : ${results.filter((entry) => entry.ok).length}`);
-  console.log(`  failed   : ${failed.length}`);
-  console.log(`  under 10KB: ${small.length}${small.length > 0 ? ` (${small.map((e) => e.name).join(', ')})` : ''}`);
-  console.log(`  out dir  : ${OUT_DIR}`);
-  console.log(`  api origin(s): ${[...apiOrigins].join(', ') || '(none observed)'}`);
+  console.log(`  routes    : ${results.length}`);
+  console.log(`  captured  : ${results.filter((entry) => entry.ok).length}`);
+  console.log(`  failed    : ${failed.length}`);
+  console.log(`  out dir   : ${OUT_DIR}`);
   if (consoleErrors.length > 0) {
     console.log(`  console errors: ${consoleErrors.length}`);
-    for (const message of consoleErrors.slice(0, 10)) console.log(`    ! ${message}`);
+    for (const message of consoleErrors.slice(0, 8)) console.log(`    ! ${message.split('\n')[0]}`);
   }
 
   await browser.close();
