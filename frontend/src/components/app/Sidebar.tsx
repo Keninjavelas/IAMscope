@@ -1,10 +1,10 @@
 import type { JSX } from 'react';
 import { NavLink } from 'react-router-dom';
-import { ChevronsLeft, ChevronsRight, Keyboard } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, Keyboard, ShieldCheck } from 'lucide-react';
 import { IconButton } from '@/components/ui/Button';
 import { Kbd } from '@/components/ui/Kbd';
 import { NAV_GROUPS, ORG_NAV_ITEMS, ROUTES } from '@/lib/constants';
-import { useActiveOrg, useRole } from '@/stores/session';
+import { useActiveOrg, useCurrentUser, useRole } from '@/stores/session';
 import { useUiStore } from '@/stores/ui';
 import { cn } from '@/lib/cn';
 
@@ -16,6 +16,7 @@ export function Sidebar(): JSX.Element {
   const setKeyboardHelpOpen = useUiStore((state) => state.setKeyboardHelpOpen);
   const activeOrg = useActiveOrg();
   const role = useRole();
+  const currentUser = useCurrentUser();
 
   const isAdmin = role !== null && (ROLE_RANK[role] ?? 0) >= (ROLE_RANK.admin ?? 2);
   // Non-admins only see the roster they are allowed to read.
@@ -98,6 +99,45 @@ export function Sidebar(): JSX.Element {
             </section>
           );
         })}
+
+        {/* Platform surface: rendered only for allowlisted emails, because every
+            signed-up user is already an owner of their own organization. */}
+        {currentUser?.isPlatformAdmin === true ? (
+          <section className="mb-3">
+            {collapsed ? (
+              <div aria-hidden="true" className="mx-2 mb-1 h-px bg-border" />
+            ) : (
+              <h2 className="text-micro mb-1 px-1.5 font-semibold tracking-wide text-text-subtle uppercase">
+                Platform
+              </h2>
+            )}
+            <ul className="flex flex-col gap-0.5">
+              <li>
+                <NavLink
+                  to={ROUTES.adminUsers}
+                  title={collapsed ? 'Admin' : undefined}
+                  className={({ isActive }) =>
+                    cn(
+                      'dur-fast flex items-center gap-2 rounded-input px-1.5 py-1.5 text-13 no-underline outline-none',
+                      'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus',
+                      collapsed && 'justify-center px-0',
+                      isActive
+                        ? 'bg-bg-selected font-medium text-text'
+                        : 'text-text-muted hover:bg-bg-hover hover:text-text',
+                    )
+                  }
+                >
+                  <ShieldCheck aria-hidden="true" className="size-4 shrink-0" />
+                  {collapsed ? (
+                    <span className="sr-only">Admin</span>
+                  ) : (
+                    <span className="min-w-0 flex-1 truncate">Admin</span>
+                  )}
+                </NavLink>
+              </li>
+            </ul>
+          </section>
+        ) : null}
 
         {activeOrg ? (
           <section className="mb-3">

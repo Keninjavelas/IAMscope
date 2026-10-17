@@ -52,6 +52,8 @@ const MembersPage = lazy(() => import('@/features/orgs/MembersPage'));
 const InvitationsPage = lazy(() => import('@/features/orgs/InvitationsPage'));
 const ApiKeysPage = lazy(() => import('@/features/orgs/ApiKeysPage'));
 
+const AdminUsersPage = lazy(() => import('@/features/admin/AdminUsersPage'));
+const RequirePlatformAdmin = lazy(() => import('@/features/admin/RequirePlatformAdmin'));
 const PoliciesPage = lazy(() => import('@/features/policies/PoliciesPage'));
 const PolicyDetailPage = lazy(() => import('@/features/policies/PolicyDetailPage'));
 const PolicyVersionsPage = lazy(() => import('@/features/policies/PolicyVersionsPage'));
@@ -409,6 +411,14 @@ export default function App(): JSX.Element {
                       }
                     />
 
+                    <Route
+                      path={ROUTES.adminUsers}
+                      element={
+                        <RequirePlatformAdmin>
+                          <AdminUsersPage />
+                        </RequirePlatformAdmin>
+                      }
+                    />
                     <Route
                       path={ROUTES.policies}
                       element={

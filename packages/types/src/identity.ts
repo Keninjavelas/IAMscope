@@ -227,8 +227,17 @@ export interface AuthEvent {
 /* Route payloads                                                      */
 /* ------------------------------------------------------------------ */
 
+export interface AuthMeUser extends User {
+  /**
+   * True when this email is listed in `PLATFORM_ADMIN_EMAILS`. Fail-closed: an
+   * unset allowlist yields false for everyone, including the deployer.
+   */
+  isPlatformAdmin: boolean;
+}
+
 export interface AuthMeResponse {
-  user: User;
+  /** The session user, plus the platform-level admin grant (not an org role). */
+  user: AuthMeUser;
   activeOrg: Org | null;
   role: Role | null;
   orgs: Org[];

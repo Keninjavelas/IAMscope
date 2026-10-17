@@ -48,6 +48,8 @@ export const ROUTES = {
   orgInvitations: '/orgs/:id/invitations',
   orgApiKeys: '/orgs/:id/api-keys',
 
+  /** Platform-admin only; guarded by `RequirePlatformAdmin`. */
+  adminUsers: '/admin/users',
   policies: '/policies',
   policyDetail: '/policies/:id',
   policyVersions: '/policies/:id/versions',

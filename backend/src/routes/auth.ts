@@ -3,6 +3,7 @@
  * `POST /auth/*` write a single session/CSRF cookie pair; nothing here reads `orgId` from input.
  */
 import { Router } from 'express';
+import { env } from '../env';
 import { ObjectId } from 'mongodb';
 import {
   DEFAULT_USER_PREFERENCES,
@@ -413,7 +414,11 @@ authRouter.get(
         : await identity.orgs().findOne({ _id: activeOrgId, deletedAt: null });
 
     const payload: AuthMeResponse = {
-      user: toUserDTO(auth.user),
+      user: {
+        ...toUserDTO(auth.user),
+        // Platform-level grant, not an org role: every signup is an owner of its own org.
+        isPlatformAdmin: env.PLATFORM_ADMIN_EMAILS.includes(auth.user.email.toLowerCase()),
+      },
       activeOrg: active === null ? null : await toOrgDTOForUser(active, auth.role),
       role: auth.role,
       orgs,

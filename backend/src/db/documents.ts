@@ -40,6 +40,8 @@ export interface UserDoc {
   mfaEnabled: boolean;
   mfaSecret: string | null;
   status: UserStatus;
+  /** Set only by the platform-admin soft delete; such accounts are never returned to login. */
+  deletedAt?: Date | null;
   preferences: UserPreferences;
   createdAt: Date;
   updatedAt: Date;

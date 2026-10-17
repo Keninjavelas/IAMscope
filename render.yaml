@@ -44,3 +44,8 @@ services:
       # the same day rather than living out the full 30-day token lifetime.
       - key: SESSION_IDLE_MINUTES
         value: '720'
+      # Platform-admin allowlist for /api/admin/*. Comma-separated, case-insensitive.
+      # Empty means NOBODY is an admin (fail-closed), so /admin/users would 403 for
+      # everyone - set the real address here or in the dashboard.
+      - key: PLATFORM_ADMIN_EMAILS
+        value: demo@iamscope.dev

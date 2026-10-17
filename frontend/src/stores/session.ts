@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AuthMeResponse, Org, Permission, Role, User } from '@iamscope/types';
+import type { AuthMeResponse, Org, Permission, Role } from '@iamscope/types';
 
 const ROLE_RANK: Record<Role, number> = { viewer: 0, member: 1, admin: 2, owner: 3 };
 
@@ -12,7 +12,8 @@ const NO_PERMISSIONS: Permission = {
 };
 
 export interface SessionState {
-  user: User | null;
+  /** `AuthMeResponse['user']` carries `isPlatformAdmin`, which plain `User` does not. */
+  user: AuthMeResponse['user'] | null;
   activeOrg: Org | null;
   orgs: Org[];
   role: Role | null;
@@ -118,7 +119,8 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
 /* Selector hooks - one per slice so components re-render narrowly.   */
 /* ------------------------------------------------------------------ */
 
-export const useCurrentUser = (): User | null => useSessionStore((state) => state.user);
+export const useCurrentUser = (): AuthMeResponse['user'] | null =>
+  useSessionStore((state) => state.user);
 export const useActiveOrg = (): Org | null => useSessionStore((state) => state.activeOrg);
 export const useUserOrgs = (): Org[] => useSessionStore((state) => state.orgs);
 export const useRole = (): Role | null => useSessionStore((state) => state.role);

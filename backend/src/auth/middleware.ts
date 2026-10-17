@@ -12,6 +12,7 @@ import type { SessionDoc } from '../db/documents';
 import { forbidden, notFound, unauthenticated } from '../lib/errors';
 import { isObjectIdString, oidRequired, toObjectId } from '../lib/objectId';
 import { logger } from '../logger';
+import { env } from '../env';
 import { asyncHandler } from '../middleware/errorHandler';
 import { recordAuthEvent } from '../services/audit';
 import { readBearerToken, readSessionToken } from './cookies';
@@ -239,6 +240,30 @@ export const requireOrg: RequestHandler = (req, _res, next) => {
  * RBAC guard. Sessions are checked against the role hierarchy; API keys are checked against
  * their scopes via {@link roleFromScopes}.
  */
+/**
+ * Platform-admin gate for cross-tenant endpoints.
+ *
+ * Membership roles are per-org, so "owner" cannot express this: every signup mints
+ * an owner. The allowlist is therefore an explicit platform-level grant.
+ *
+ * Fail-closed by construction: `[].includes(email)` is always false, so an unset or
+ * empty `PLATFORM_ADMIN_EMAILS` forbids everyone rather than allowing everyone.
+ */
+export function requirePlatformAdmin(): RequestHandler {
+  return (req, _res, next) => {
+    if (req.auth?.user == null) {
+      next(unauthenticated());
+      return;
+    }
+    const email = req.auth.user.email.toLowerCase();
+    if (!env.PLATFORM_ADMIN_EMAILS.includes(email)) {
+      next(forbidden('Platform admin required'));
+      return;
+    }
+    next();
+  };
+}
+
 export function requireRole(minimum: Role): RequestHandler {
   return asyncHandler(async (req, _res, next) => {
     const auth = authContextOrThrow(req);

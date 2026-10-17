@@ -38,6 +38,20 @@ const envSchema = z
       .default('info'),
     APP_VERSION: z.string().min(1).default(pkg.version),
     COOKIE_SAMESITE: z.enum(['lax', 'strict', 'none']).default('lax'),
+    /**
+     * Comma-separated allowlist of platform-admin emails. Empty by default and
+     * **fail-closed**: an empty list means nobody is an admin, so a missing config
+     * cannot accidentally grant cross-tenant access.
+     */
+    PLATFORM_ADMIN_EMAILS: z
+      .string()
+      .default('')
+      .transform((value) =>
+        value
+          .split(',')
+          .map((entry) => entry.trim().toLowerCase())
+          .filter(Boolean),
+      ),
     /** Minutes of inactivity before a session is treated as idle-expired. 0 disables the check. */
     SESSION_IDLE_MINUTES: z.coerce.number().int().min(0).max(1_440).default(0),
   })

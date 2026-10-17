@@ -14,13 +14,14 @@ import {
   Plus,
   Settings,
   Share2,
+  ShieldCheck,
   Users,
   type LucideIcon,
 } from 'lucide-react';
 import type { CommandGroup, CommandEntry } from '@/components/ui/Command';
 import { NAV_GROUPS, ROUTES, orgRoutes } from '@/lib/constants';
 import { useSwitchOrg } from '@/api/mutations/auth';
-import { useActiveOrg, useUserOrgs } from '@/stores/session';
+import { useActiveOrg, useCurrentUser, useUserOrgs } from '@/stores/session';
 
 export type CreateKind = 'policy' | 'principal' | 'resource' | 'scenario';
 
@@ -100,6 +101,7 @@ export interface CommandHandlers {
 export function useCommandGroups(handlers: CommandHandlers): CommandGroup[] {
   const orgs = useUserOrgs();
   const activeOrg = useActiveOrg();
+  const currentUser = useCurrentUser();
   const switchOrg = useSwitchOrg();
 
   const { navigate, create, evaluateSelected, openKeyboardHelp } = handlers;
@@ -140,6 +142,23 @@ export function useCommandGroups(handlers: CommandHandlers): CommandGroup[] {
           item.shortcut,
         ),
       ),
+    });
+  }
+
+  // Platform-admin navigation is not in NAV_GROUPS because it is conditional on the
+  // allowlist, not on a membership role.
+  if (currentUser?.isPlatformAdmin === true) {
+    groups.push({
+      heading: 'Platform',
+      items: [
+        navigateEntry(
+          'nav:admin-users',
+          'Go to Admin → Users',
+          ROUTES.adminUsers,
+          ShieldCheck,
+          'Every account, with suspend and delete',
+        ),
+      ],
     });
   }
 
