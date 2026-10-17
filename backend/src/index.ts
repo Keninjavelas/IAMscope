@@ -82,6 +82,50 @@ async function healthHandler(req: Request, res: Response): Promise<void> {
   sendData(res, body, body.status === 'ok' ? 200 : 503);
 }
 
+/**
+ * Readiness probe, distinct from liveness.
+ *
+ * `/api/health` answers "is this process alive and are the pools up?" and is what
+ * `deploy:check` and `smoke` poll, so its contract must not change. Readiness
+ * additionally requires the change-stream watchers, because a service that can
+ * answer requests but never delivers live updates serves stale data to the UI -
+ * that is a failed deploy, not a healthy one.
+ *
+ * Note: `listen()` already happens strictly after both pools connect (see
+ * `bootstrap`), so a bad credential never binds the port at all. This endpoint
+ * covers the other direction - a pool that drops, or watchers that never start,
+ * after the process is already listening.
+ */
+async function readinessHandler(req: Request, res: Response): Promise<void> {
+  const [identity, data] = await Promise.all([pingIdentity(), pingData()]);
+  const watchers = watcherStatus();
+
+  const reasons: string[] = [];
+  if (!identity) reasons.push('identity_unreachable');
+  if (!data) reasons.push('data_unreachable');
+  if (!watchers.active) reasons.push('watchers_inactive');
+
+  const ready = reasons.length === 0;
+
+  const body = {
+    ready,
+    reasons,
+    uptimeSeconds: Math.round((Date.now() - startedAt) / 1_000),
+    version: env.APP_VERSION,
+    database: {
+      identity: identity ? 'up' : 'down',
+      data: data ? 'up' : 'down',
+    },
+    watchers: {
+      active: watchers.active,
+      watchedCollections: watchers.watchedCollections,
+    },
+    timestamp: new Date().toISOString(),
+  };
+
+  sendData(res, body, ready ? 200 : 503);
+}
+
 /* ------------------------------------------------------------------ */
 /* App                                                                 */
 /* ------------------------------------------------------------------ */
@@ -146,6 +190,11 @@ export function createApp(): Express {
   // Health is registered before auth/CSRF so the keep-warm cron never needs credentials.
   app.get('/api/health', (req, res, next) => {
     healthHandler(req, res).catch(next);
+  });
+
+  // Readiness sits beside liveness, also before auth: a probe cannot present a session.
+  app.get('/api/health/ready', (req, res, next) => {
+    readinessHandler(req, res).catch(next);
   });
 
   app.use('/api', attachAuth(), csrfMiddleware(), api);

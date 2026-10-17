@@ -8,7 +8,9 @@ services:
     rootDir: .
     buildCommand: npm ci --include=dev && npm run build:packages && npm run build --workspace backend
     startCommand: node backend/dist/index.js
-    healthCheckPath: /api/health
+    # Readiness, not liveness: requires both pools AND the change-stream watchers.
+    # A deploy that cannot deliver live updates is not a successful deploy.
+    healthCheckPath: /api/health/ready
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
