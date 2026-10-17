@@ -51,6 +51,7 @@ desktop.ini
 verification/
 findings-rolling.md
 har-*.json
+screenshots/
 
 # misc
 .cache/
