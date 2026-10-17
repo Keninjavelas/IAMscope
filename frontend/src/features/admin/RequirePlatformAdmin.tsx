@@ -22,7 +22,11 @@ export default function RequirePlatformAdmin({ children }: { children: ReactNode
 
   if (!hydrated) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center" role="status" aria-live="polite">
+      <div
+        className="flex min-h-[40vh] items-center justify-center"
+        role="status"
+        aria-live="polite"
+      >
         <span className="text-13 flex items-center gap-2 text-text-muted">
           <Loader2 aria-hidden="true" className="size-4 animate-spin" />
           Checking access…
