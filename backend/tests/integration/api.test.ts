@@ -9,7 +9,9 @@ import { ObjectId } from 'mongodb';
 import request, { type Response as SupertestResponse } from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mintEventToken } from '../../src/auth/eventTokens';
+import { data } from '../../src/db/data';
 import { identity } from '../../src/db/identity';
+import { env } from '../../src/env';
 import { createApp } from '../../src/index';
 import { cancelPendingEvaluations } from '../../src/services/evaluationRunner';
 import { ensureMembership } from '../../src/services/org';
@@ -1012,6 +1014,241 @@ describe.skipIf(!available)(`API integration (${available ? 'mongo ready' : skip
       expect(cookieStream.status).toBe(401);
       const tokenStream = await request(app).get(`/api/events?token=${encodeURIComponent(token)}`);
       expect(tokenStream.status).toBe(401);
+    });
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* Platform admin (allowlist gate, safety guards, audit)             */
+  /* ---------------------------------------------------------------- */
+
+  describe('platform admin', () => {
+    const ADMIN_EMAIL = 'platform-admin@acme.test';
+
+    let admin: TestAgent;
+    let adminId: string;
+    let adminOrgId: string;
+    let adminCsrf: string;
+
+    /** Signs up a fresh user (each signup is an owner of its own org). */
+    async function makeUser(email: string): Promise<{
+      agent: TestAgent;
+      id: string;
+      orgId: string;
+      csrf: string;
+    }> {
+      const agent = request.agent(app);
+      const created = await agent
+        .post('/api/auth/signup')
+        .set('X-Forwarded-For', nextTestIp())
+        .send({
+          email,
+          password: 'correct-horse-battery-9',
+          name: email.split('@')[0] ?? 'user',
+          orgName: `${email} Org`,
+        });
+      expect(created.status).toBe(201);
+      return {
+        agent,
+        id: created.body.data.user.id as string,
+        orgId: created.body.data.activeOrg.id as string,
+        csrf: csrfFrom(created),
+      };
+    }
+
+    beforeAll(async () => {
+      // The allowlist is parsed once at import time from the environment, which has no
+      // value in CI. Mutating the parsed array is the seam that makes the gate testable
+      // without relaunching the process.
+      if (!env.PLATFORM_ADMIN_EMAILS.includes(ADMIN_EMAIL)) {
+        env.PLATFORM_ADMIN_EMAILS.push(ADMIN_EMAIL);
+      }
+
+      const created = await makeUser(ADMIN_EMAIL);
+      admin = created.agent;
+      adminId = created.id;
+      adminOrgId = created.orgId;
+      adminCsrf = created.csrf;
+
+      // The signup response must advertise the grant, or the sidebar entry can never show.
+      const me = await admin.get('/api/auth/me');
+      expect(me.body.data.user.isPlatformAdmin).toBe(true);
+    });
+
+    /* T1 ----------------------------------------------------------- */
+
+    it('T1: refuses non-admins with 403, and fails closed when the allowlist is empty', async () => {
+      const outsider = await makeUser('plain-user@acme.test');
+
+      const denied = await outsider.agent.get('/api/admin/users');
+      expect(denied.status).toBe(403);
+      expect(denied.body.error.code).toBe('FORBIDDEN');
+
+      // Fail-closed: removing every entry must forbid even an otherwise-valid session.
+      const configured = [...env.PLATFORM_ADMIN_EMAILS];
+      try {
+        env.PLATFORM_ADMIN_EMAILS.length = 0;
+        const closed = await admin.get('/api/admin/users');
+        expect(closed.status).toBe(403);
+        expect(closed.body.error.code).toBe('FORBIDDEN');
+      } finally {
+        env.PLATFORM_ADMIN_EMAILS.push(...configured);
+      }
+
+      // Restored allowlist still works.
+      const reopened = await admin.get('/api/admin/users');
+      expect(reopened.status).toBe(200);
+    });
+
+    /* T2 ----------------------------------------------------------- */
+
+    it('T2: returns a paginated list across organizations for an admin', async () => {
+      const response = await admin.get('/api/admin/users');
+
+      expect(response.status).toBe(200);
+      expect(Array.isArray(response.body.data.items)).toBe(true);
+      expect(typeof response.body.data.total).toBe('number');
+      expect(response.body.data.total).toBeGreaterThanOrEqual(1);
+      expect(response.body.data.page).toBe(1);
+      expect(response.body.data.pageSize).toBe(50);
+
+      // Cross-org: the admin's own org plus the users created by other tests.
+      const emails = response.body.data.items.map((item: { email: string }) => item.email);
+      expect(emails).toContain(ADMIN_EMAIL);
+    });
+
+    /* T3 ----------------------------------------------------------- */
+
+    it('T3: refuses self-suspend and leaves the account active', async () => {
+      const response = await admin
+        .patch(`/api/admin/users/${adminId}/status`)
+        .set('X-CSRF-Token', adminCsrf)
+        .send({ status: 'suspended' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error.code).toBe('BAD_REQUEST');
+
+      const stored = await identity.users().findOne({ _id: new ObjectId(adminId) });
+      expect(stored?.status).toBe('active');
+    });
+
+    /* T4 ----------------------------------------------------------- */
+
+    it('T4: refuses self-delete and leaves the account undeleted', async () => {
+      const response = await admin
+        .delete(`/api/admin/users/${adminId}`)
+        .set('X-CSRF-Token', adminCsrf);
+
+      expect(response.status).toBe(400);
+      expect(response.body.error.code).toBe('BAD_REQUEST');
+
+      const stored = await identity.users().findOne({ _id: new ObjectId(adminId) });
+      expect(stored?.status).toBe('active');
+      expect(stored?.deletedAt ?? null).toBeNull();
+    });
+
+    /* T5 ----------------------------------------------------------- */
+
+    it('T5: suspending a user revokes their sessions and invalidates the old cookie', async () => {
+      const target = await makeUser('revoked-target@acme.test');
+
+      const live = await identity
+        .sessions()
+        .countDocuments({ userId: new ObjectId(target.id), revokedAt: null });
+      expect(live).toBeGreaterThanOrEqual(1);
+
+      const suspended = await admin
+        .patch(`/api/admin/users/${target.id}/status`)
+        .set('X-CSRF-Token', adminCsrf)
+        .send({ status: 'suspended' });
+      expect(suspended.status).toBe(200);
+      expect(suspended.body.data.status).toBe('suspended');
+
+      const stillLive = await identity
+        .sessions()
+        .countDocuments({ userId: new ObjectId(target.id), revokedAt: null });
+      expect(stillLive).toBe(0);
+
+      // The revoked cookie must stop working immediately, not at next expiry.
+      const afterRevoke = await target.agent.get('/api/policies');
+      expect(afterRevoke.status).toBe(401);
+    });
+
+    /* T6 ----------------------------------------------------------- */
+
+    it('T6: every admin mutation writes an audit event scoped to the actor org', async () => {
+      const target = await makeUser('audited-target@acme.test');
+
+      const suspend = await admin
+        .patch(`/api/admin/users/${target.id}/status`)
+        .set('X-CSRF-Token', adminCsrf)
+        .send({ status: 'suspended' });
+      expect(suspend.status).toBe(200);
+
+      const unsuspend = await admin
+        .patch(`/api/admin/users/${target.id}/status`)
+        .set('X-CSRF-Token', adminCsrf)
+        .send({ status: 'active' });
+      expect(unsuspend.status).toBe(200);
+
+      const removed = await admin
+        .delete(`/api/admin/users/${target.id}`)
+        .set('X-CSRF-Token', adminCsrf);
+      expect(removed.status).toBe(200);
+
+      const events = await data
+        .auditEvents()
+        .find({ 'target.id': target.id })
+        .sort({ timestamp: 1 })
+        .toArray();
+
+      expect(events.map((event) => event.action)).toEqual([
+        'user.status.change',
+        'user.status.change',
+        'user.delete',
+      ]);
+
+      for (const event of events) {
+        expect(event.target.type).toBe('user');
+        // Audit is tenant-scoped: the write belongs to the ACTOR's org, not the target's.
+        expect(event.orgId.toHexString()).toBe(adminOrgId);
+        expect(event.actorUserId?.toHexString()).toBe(adminId);
+      }
+
+      expect(events[0]?.before).toMatchObject({ status: 'active' });
+      expect(events[0]?.after).toMatchObject({ status: 'suspended' });
+      expect(events[1]?.before).toMatchObject({ status: 'suspended' });
+      expect(events[1]?.after).toMatchObject({ status: 'active' });
+      expect(events[2]?.after).toMatchObject({ status: 'deleted' });
+    });
+
+    /* T7 ----------------------------------------------------------- */
+
+    it('T7: never returns credential or token fields', async () => {
+      const response = await admin.get('/api/admin/users?pageSize=200');
+      expect(response.status).toBe(200);
+      expect(response.body.data.items.length).toBeGreaterThanOrEqual(1);
+
+      const forbiddenKeys = [
+        'passwordHash',
+        'mfaSecret',
+        'emailVerificationToken',
+        'passwordResetTokenHash',
+        'passwordResetExpiresAt',
+        'oauthProviders',
+      ];
+
+      for (const item of response.body.data.items as Record<string, unknown>[]) {
+        for (const key of forbiddenKeys) {
+          expect(Object.prototype.hasOwnProperty.call(item, key), `leaked ${key}`).toBe(false);
+        }
+        // `id` rather than `_id`: deliberate deviation, matching every other endpoint.
+        expect(typeof item.id).toBe('string');
+        expect(typeof item.email).toBe('string');
+        expect(typeof item.name).toBe('string');
+        expect(typeof item.status).toBe('string');
+        expect(typeof item.createdAt).toBe('string');
+        expect(Array.isArray(item.orgs)).toBe(true);
+      }
     });
   });
 });
