@@ -26,7 +26,9 @@ export type ApiErrorCode =
   | 'CSRF_FAILED'
   | 'PAYLOAD_TOO_LARGE'
   | 'INTERNAL_ERROR'
-  | 'SERVICE_UNAVAILABLE';
+  | 'SERVICE_UNAVAILABLE'
+  /** Client-side: the request exceeded the request timeout. */
+  | 'NETWORK_TIMEOUT';
 
 export interface Paginated<T> {
   items: T[];

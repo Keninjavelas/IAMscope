@@ -89,16 +89,32 @@ export default function SignupPage(): JSX.Element {
           />
 
           {serverError ? (
-            <p
+            <div
               role="alert"
-              className="text-meta rounded-input border border-danger/40 bg-danger-subtle px-2 py-1.5 text-danger"
+              className="flex flex-col gap-2 rounded-input border border-danger/40 bg-danger-subtle px-2 py-1.5"
             >
-              {isApiError(serverError) && serverError.fieldErrors.email
-                ? serverError.fieldErrors.email
-                : isApiError(serverError)
-                  ? serverError.message
-                  : 'Could not create your account.'}
-            </p>
+              <p className="text-meta text-danger">
+                {isApiError(serverError) && serverError.fieldErrors.email
+                  ? serverError.fieldErrors.email
+                  : isApiError(serverError)
+                    ? serverError.message
+                    : 'Could not create your account.'}
+              </p>
+              {/*
+                Retry is safe here: the form keeps its values, and the mutation is
+                idempotent from the user's point of view - a failed attempt created
+                nothing. The sign-in link is the escape hatch when the account was in
+                fact created before the response was lost.
+              */}
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="button" variant="secondary" size="sm" onClick={onSubmit}>
+                  Try again
+                </Button>
+                <Link to={ROUTES.login} className="text-12 font-medium">
+                  Sign in instead
+                </Link>
+              </div>
+            </div>
           ) : null}
 
           <DevTokenNotice

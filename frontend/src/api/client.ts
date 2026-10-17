@@ -5,6 +5,14 @@ import { env } from '@/env';
 /* Errors                                                             */
 /* ------------------------------------------------------------------ */
 
+/** No request may stay in flight longer than this. */
+const REQUEST_TIMEOUT_MS = 15_000;
+
+export const NETWORK_TIMEOUT_MESSAGE =
+  'Request timed out — the server may be starting up. Try again in 30 seconds.';
+
+export const SERVICE_UNAVAILABLE_MESSAGE = 'The server is unavailable. Retry in 30 seconds.';
+
 export class ApiError extends Error {
   readonly code: ApiErrorCode | (string & {});
   readonly status: number;
@@ -216,13 +224,47 @@ export async function rawRequest<T>(
     if (token) headers[CSRF_HEADER] = token;
   }
 
-  const response = await fetch(toUrl(path, query), {
-    method,
-    credentials: 'include',
-    headers,
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    ...(options.signal ? { signal: options.signal } : {}),
-  });
+  /**
+   * Every request is bounded. Without this, a dead origin (Render suspended, a
+   * failed deploy, a hung rewrite) leaves the promise pending until the browser's
+   * own timeout — which is what produced a submit button stuck in `aria-busy`
+   * for 90+ seconds with no error anywhere.
+   */
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  // A caller-provided signal (React Query cancellation on unmount) still has to win.
+  const callerSignal = options.signal;
+  if (callerSignal !== undefined) {
+    if (callerSignal.aborted) controller.abort();
+    else callerSignal.addEventListener('abort', () => controller.abort(), { once: true });
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(toUrl(path, query), {
+      method,
+      credentials: 'include',
+      headers,
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    // A caller cancellation must stay an AbortError so React Query discards it
+    // instead of surfacing it as a failure.
+    // Only a caller-initiated abort is rethrown as-is; everything else (including
+    // the timeout, which leaves the caller signal clean) is a timeout as far as
+    // the user is concerned.
+    if (callerSignal?.aborted === true) throw error;
+    throw new ApiError({
+      code: 'NETWORK_TIMEOUT',
+      message: NETWORK_TIMEOUT_MESSAGE,
+      status: 0,
+      requestId: null,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 
   const requestId = response.headers.get('x-request-id');
   const payload = await parseBody(response);
@@ -241,9 +283,28 @@ function toApiError(
   envelope: ApiResponse<unknown>,
   requestId: string | null,
 ): ApiError {
+  /**
+   * Gateway failures come from the edge, not from this API: the body is plain
+   * text, so there is no envelope. Translate them into something a user can act
+   * on instead of echoing "502 Bad Gateway".
+   *
+   * An envelope that DOES carry an error is kept as-is: our own 503 (database
+   * unreachable) has a more specific message than the generic one.
+   */
+  if (envelope.error === undefined && (status === 502 || status === 503 || status === 504)) {
+    return new ApiError({
+      code: 'SERVICE_UNAVAILABLE',
+      message: SERVICE_UNAVAILABLE_MESSAGE,
+      status,
+      requestId,
+    });
+  }
+
+  // Declared after the guard above so control-flow narrowing cannot make this
+  // check redundant.
   const body: ApiErrorBody | undefined = envelope.error;
 
-  if (body) {
+  if (body !== undefined) {
     return new ApiError({
       code: body.code,
       message: body.message,
