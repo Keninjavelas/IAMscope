@@ -17,6 +17,30 @@ The app is multi-tenant: each organization has its own policies, principals, res
 
 Version `v1.0.0` is tagged. Automated API and deployment checks passed at release. Browser interaction, accessibility, Lighthouse, and the Vercel and cron dashboard checks are explicitly deferred in [DECISIONS.md](DECISIONS.md#v100-release-scope); they are not claimed as verified.
 
+## Screenshots
+
+Captured from the deployed app at 1440×900 while signed in as a platform admin.
+
+### Home dashboard
+
+![Home dashboard](docs/screenshots/home.png)
+
+### Policies
+
+![Policies list](docs/screenshots/policies.png)
+
+### Impact lens
+
+![Impact lens](docs/screenshots/impact.png)
+
+### Graph lens
+
+![Graph lens](docs/screenshots/graph.png)
+
+### Admin users
+
+![Admin users](docs/screenshots/admin-users.png)
+
 ## How it fits together
 
 ```mermaid

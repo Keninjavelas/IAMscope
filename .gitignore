@@ -51,7 +51,8 @@ desktop.ini
 verification/
 findings-rolling.md
 har-*.json
-screenshots/
+# Root-anchored: working captures stay out of git, docs/screenshots/ is tracked.
+/screenshots/
 
 # misc
 .cache/
